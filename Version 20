@@ -1,0 +1,3033 @@
+// --- CONFIGURATION ---
+const SOURCE_SHEET_ID = '1H-0AsiVLtlw77Kl53yMpoAZuu_8jV8MfMTVYtiR_BbU';
+const SOURCE_TAB_NAME = 'MasterBooking';
+const DESTINATION_TAB_NAME = 'ImportedData';
+const ARCHIVE_TAB_NAME = 'ProcessedForms';
+const PROCESSED_IDS_TAB_NAME = 'ProcessedIDs'; 
+const DROPDOWN_DATA_TAB_NAME = 'DataValidation';
+
+// *** HEADER NAMES ***
+const KEY_COLUMN_HEADER = 'DBF Reference';
+const STATUS_COLUMN_HEADER = 'Approval Status';
+const APPROVAL_NOTES_HEADER = 'Approval Notes';
+const REVIEW_TRIGGER_COL_HEADER = 'Review'; 
+
+// *** COLUMNS TO CALCULATE LIVE BUT NOT SAVE ***
+const CALCULATED_COLUMNS = ['Client Hours', 'Total Client Payment', 'Driver Total Payment', 'Driver Hours'];
+
+// --- DROPDOWN MENU OPTIONS ---
+const STATUS_OPTIONS = ['Approved', 'Rejected'];
+
+// *** NEW: DIAGNOSTIC CELL LOCATIONS ***
+const ID_SEQUENCE_CHECK_CELL = 'B1'; // Cell holding the Sequence Check result
+const DUPLICATE_SUMMARY_CELL = 'F1'; // Cell holding the Duplication Check Summary
+
+// *** FALLBACK LIST (For Non-Film Jobs) ***
+const POPUP_DISPLAY_COLUMNS = [
+  "Full Name", "Booking Type", "Client", "Client Start Time", "Client Finish Time",
+  "Client Hours", "6th Day?", "7th Day?", "Total Client Payment", "Driver Total Payment"
+];
+
+// *** VIEW COLUMNS (For 'Approve FUDs' Menu) ***
+const VIEW_APPROVE_FUDS_COLUMNS = [
+  "Delay Status", "DBF Reference", "Hire No.", "Full Name", "Payment Agreement",
+  "Booking Type", "Client", "Film Unit Day Options", "Vehicle Registration", 
+  "Calculated Mileage", "Transport Captain", "Unit Base Address", 
+  "Client Start Time", "Client Finish Time", "Client Hours", "Contracted Hours", 
+  "Day Type", "Pre-Agreed Travel / Other O/T", "Time Taken off the Day", 
+  "6th Day?", "7th Day?", "Standard O/T", "Total Standard O/T Payment", 
+  "Standard Night Hours", "Total Night Payment", "Enhanced Hours", 
+  "Total Enhanced O/T Payment", "Early Call Hours", "Total Early Call Payment", 
+  "BTA Hours", "Total BTA Payment", "Total Allowances Payment", 
+  "Total Per Diems Payment", "Client Basic", "Override Client Basic", 
+  "Total Client Extras", "Override Client Extras", "Total Client Payment", 
+  "Approval Status", "Fuel Type", "Fuel / Electric", "Driver Start time", 
+  "Driver Finish time", "Driver Hour Comments", "Extras to Charge", 
+  "Approval Notes", "Overwrite Basic", "Overwrite Bonus", "Driver Hours", 
+  "Driver O/T Hours", "Driver Basic", "DRV O/T Payment", "Driver Bonus", 
+  "Driver Total Payment", "Start Mileage", "Finish Mileage", "UD Contracted Hours Override", "Override Basic Rate"
+];
+
+
+// *** MAIN POPUP LAYOUTS (1, 2, 3, 4, 5) ***
+const FILM_DAY_RATE_CONFIG = [
+  {
+    group: "Basic Info", // 1. Renamed
+    fields: [
+      { header: "Hire No.", type: "editable" },
+      { header: "Payment Agreement", type: "dropdown" },
+      { header: "Booking Type", type: "dropdown" },
+      { header: "Film Unit Day Options", type: "dropdown" }, 
+      { header: "Client", type: "dropdown" },
+      { header: "Vehicle Registration", type: "editable" }, 
+      { header: "Unit Base Address", type: "editable" } 
+    ]
+  },
+  {
+    group: "Client Hours", // 2.
+    fields: [
+      { header: "Day Type", type: "dropdown" }, 
+      { header: "Film Unit Day Options", type: "dropdown" }, 
+      { header: "UD Contracted Hours Override", type: "editable" }, 
+      { header: "Client Start Time", type: "datetime", placeholder: "DD/MM/YYYY" }, 
+      { header: "Client Finish Time", type: "datetime", placeholder: "DD/MM/YYYY" }, 
+      { header: "Client Hours", type: "static" },
+      { header: "Contracted Hours", type: "static" },
+      { header: "6th Day?", type: "checkbox" }, 
+      { header: "7th Day?", type: "checkbox" },
+      { header: "Bank Holiday?", type: "checkbox" }, 
+      { header: "Transport Captain", type: "checkbox" } 
+    ]
+  },
+  {
+    group: "Driver Hours", // 3.
+    fields: [
+      { header: "Driver Start time", type: "datetime", placeholder: "DD/MM/YYYY" }, 
+      { header: "Driver Finish time", type: "datetime", placeholder: "DD/MM/YYYY" }, 
+      { header: "Driver Hour Comments", type: "static" },
+      { header: "Driver Hours", type: "static" } 
+    ]
+  },
+  {
+    group: "Mileage", // 4.
+    fields: [
+      { header: "Calculated Mileage", type: "static" },
+      { header: "Start Mileage", type: "editable" }, 
+      { header: "Finish Mileage", type: "editable" } 
+    ]
+  },
+  {
+    group: "Client Basic Overrides", // 5. Renamed
+    fields: [
+      { header: "Pre-Agreed Travel / Other O/T", type: "editable" },
+      { header: "Time Taken off the Day", type: "editable" },
+      { header: "UD Contracted Hours Override", type: "editable" }, // Red
+      { header: "Override Basic Rate", type: "editable" } // Red
+    ]
+  },
+  {
+    group: "Overtime", // 6. Renamed
+    fields: [
+      { header: "Standard O/T", type: "static" },
+      { header: "Standard O/T Rate", type: "static" }, 
+      { header: "Total Standard O/T Payment", type: "static" }
+    ]
+  },
+  {
+    group: "Night Hours", // 7.
+    fields: [
+      { header: "Standard Night Hours", type: "static" },
+      { header: "Night Rate", type: "static" }, 
+      { header: "Total Night Payment", type: "static" }
+    ]
+  },
+  {
+    group: "Enhanced O/T", // 8.
+    fields: [
+      { header: "Enhanced Hours", type: "static" },
+      { header: "Enhanced Rate", type: "static" }, 
+      { header: "Total Enhanced O/T Payment", type: "static" }
+    ]
+  },
+  {
+    group: "Early Call", // 9.
+    fields: [
+      { header: "Early Call Hours", type: "static" },
+      { header: "Early Call Rate", type: "static" }, 
+      { header: "Total Early Call Payment", type: "static" }
+    ]
+  },
+  {
+    group: "BTA Payments", // 10.
+    fields: [
+      { header: "BTA Hours", type: "static" },
+      { header: "BTA Rate", type: "static" }, 
+      { header: "Total BTA Payment", type: "static" }
+    ]
+  },
+  {
+    group: "Expenses", // 11.
+    fields: [
+      { header: "Extras to Charge", type: "static" },
+      { header: "Other Tolls / Charges", type: "editable" },
+      { header: "Fuel Type", type: "dropdown" }, 
+      { header: "Fuel / Electric", type: "editable" },
+      { header: "Fuel Rate", type: "editable" }, 
+      { header: "EXP Numbers", type: "editable" } 
+    ]
+  },
+  {
+    group: "Per Diems", // 12.
+    fields: [
+      { header: "Override Client Extras", type: "editable" }, 
+      { header: "Total Allowances Payment", type: "static" }, 
+      { header: "Total Per Diems Payment", type: "static" }, 
+      { header: " Car Wash Payment", type: "static" }, 
+      { header: " Phone Payment", type: "static" }, 
+      { header: " Laptop Payment", type: "static" }, 
+      { header: "Lunch", type: "editable" },
+      { header: "Breakfast", type: "editable" },
+      { header: "Overnight", type: "editable" },
+      { header: "Other Per Diems", type: "editable" },
+      { header: "Per Diem Comments", type: "editable" }
+    ]
+  },
+  {
+    group: "Driver Totals", // 13.
+    fields: [
+      { header: "Overwrite Basic", type: "editable" },
+      { header: "Overwrite Bonus", type: "editable" },
+      { header: "Driver Expenses / Extra Payments", type: "editable" }, 
+      { header: "Driver O/T Hours", type: "static" },
+      { header: "Driver Basic", type: "static" },
+      { header: "DRV O/T Payment", type: "static" },
+      { header: "Driver Bonus", type: "static" },
+      { header: "Driver Total Payment", type: "static" }
+    ]
+  },
+  {
+    group: "Client Totals", // 14.
+    fields: [
+      { header: "Client Basic", type: "static" },
+      { header: "Total Client Extras", type: "static" },
+      { header: "Total Client Payment", type: "static" },
+      { header: "Override Client Basic", type: "editable" },
+      { header: "Override Client Extras", type: "editable" }
+    ]
+  }
+];
+
+
+const SINGLE_JOURNEY_CONFIG = [
+  {
+    group: "Basic Info",
+    fields: [
+      { header: "Hire No.", type: "editable" },
+      { header: "Payment Agreement", type: "dropdown" },
+      { header: "Booking Type", type: "dropdown" },
+      { header: "Single Journey Options", type: "dropdown" },
+      { header: "Client", type: "dropdown" },
+      { header: "Vehicle Registration", type: "editable" } 
+    ]
+  },
+  {
+    group: "Journey Details", // 2.
+    fields: [
+      { header: "Customer Name", type: "editable" },
+      { header: "Pickup Address", type: "editable" },
+      { header: "Drop-off Address", type: "editable" },  
+      { header: "Booking Time", type: "datetime", placeholder: "DD/MM/YYYY" },
+      { header: "POB Time", type: "datetime", placeholder: "DD/MM/YYYY" },
+      { header: "Single Journey Wait", type: "static" }  
+    ]
+  },
+  {
+    group: "Driver Hours", // 3.
+    fields: [
+      { header: "Driver Start time", type: "datetime", placeholder: "DD/MM/YYYY" }, 
+      { header: "Driver Finish time", type: "datetime", placeholder: "DD/MM/YYYY" }, 
+      { header: "Driver Hour Comments", type: "static" },
+      { header: "Driver Hours", type: "static" } 
+    ]
+  },
+  {
+    group: "Mileage", // 4.
+    fields: [
+      { header: "Calculated Mileage", type: "static" },
+      { header: "Start Mileage", type: "editable" }, 
+      { header: "Finish Mileage", type: "editable" } 
+    ]
+  },
+  {
+    group: "Booking Prices", // 5.
+    fields: [
+      { header: "Client SJ Price", type: "editable" },
+      { header: "Driver SJ Price", type: "editable" }
+    ]
+  },
+  {
+    group: "Expenses", // 6.
+    fields: [
+      { header: "Extras to Charge", type: "static" },
+      { header: "Other Tolls / Charges", type: "editable" },
+      { header: "Fuel Type", type: "dropdown" }, 
+      { header: "Fuel / Electric", type: "editable" },
+      { header: "Fuel Rate", type: "editable" }, 
+      { header: "EXP Numbers", type: "editable" } 
+    ]
+  },
+  {
+    group: "Per Diems", // 7.
+    fields: [
+      { header: "Total Per Diems Payment", type: "static" }, 
+      { header: "Lunch", type: "editable" },
+      { header: "Breakfast", type: "editable" },
+      { header: "Overnight", type: "editable" },
+      { header: "Other Per Diems", type: "editable" },
+      { header: "Per Diem Comments", type: "editable" }
+    ]
+  },
+  {
+    group: "Driver Totals", // 8.
+    fields: [
+      { header: "Overwrite Basic", type: "editable" },
+      { header: "Overwrite Bonus", type: "editable" },
+      { header: "Driver Expenses / Extra Payments", type: "editable" }, 
+      { header: "Driver Per Diems", type: "editable" }, 
+      { header: "Driver O/T Hours", type: "static" },
+      { header: "Driver Basic", type: "static" },
+      { header: "DRV O/T Payment", type: "static" },
+      { header: "Driver Bonus", type: "static" },
+      { header: "Driver Total Payment", type: "static" }
+    ]
+  },
+  {
+    group: "Client Totals", // 9.
+    fields: [
+      { header: "Single Journey Wait", type: "static" },
+      { header: "Client SJ O/T Rate", type: "static" },
+      { header: "Client SJ Wait Total", type: "static" },
+      { header: "Client SJ Price", type: "static" },
+      { header: "SJ Client Total", type: "static" },
+      { header: "Override Client Basic", type: "editable" },
+      { header: "Override Client Extras", type: "editable" }
+    ]
+  }
+];
+
+const NON_FILM_DAY_RATE_CONFIG = [
+  {
+    group: "Basic Info", // 1. Renamed
+    fields: [
+      { header: "Hire No.", type: "editable" },
+      { header: "Payment Agreement", type: "dropdown" },
+      { header: "Booking Type", type: "dropdown" },
+      { header: "Non-Film Day Rate Options", type: "dropdown" }, 
+      { header: "Client", type: "dropdown" },
+      { header: "Vehicle Registration", type: "editable" }, 
+    ]
+  },
+  {
+    group: "Client Hours", // 2.
+    fields: [ 
+      { header: "Non-Film Day Rate Options", type: "dropdown" }, 
+      { header: "UD Contracted Hours Override", type: "editable" }, 
+      { header: "Client Start Time", type: "datetime", placeholder: "DD/MM/YYYY" }, 
+      { header: "Client Finish Time", type: "datetime", placeholder: "DD/MM/YYYY" }, 
+      { header: "Client Hours", type: "static" },
+      { header: "Contracted Hours", type: "static" },
+      { header: "NFD Client O/T Rate", type: "static" },
+      { header: "NFD O/T Rate Override", type: "editable" }
+    ]
+  },
+  {
+    group: "Driver Hours", // 3.
+    fields: [
+      { header: "Driver Start time", type: "datetime", placeholder: "DD/MM/YYYY" }, 
+      { header: "Driver Finish time", type: "datetime", placeholder: "DD/MM/YYYY" }, 
+      { header: "Driver Hour Comments", type: "static" },
+      { header: "Driver Hours", type: "static" } 
+    ]
+  },
+  {
+    group: "Mileage", // 4.
+    fields: [
+      { header: "Calculated Mileage", type: "static" },
+      { header: "Start Mileage", type: "editable" }, 
+      { header: "Finish Mileage", type: "editable" } 
+    ]
+  },
+  {
+    group: "Expenses", // 11.
+    fields: [
+      { header: "Extras to Charge", type: "static" },
+      { header: "Other Tolls / Charges", type: "editable" },
+      { header: "Fuel Type", type: "dropdown" }, 
+      { header: "Fuel / Electric", type: "editable" },
+      { header: "Fuel Rate", type: "editable" }, 
+      { header: "Other Expenses Total", type: "editable" }, 
+      { header: "EXP Numbers", type: "editable" } 
+      
+    ]
+  },
+  {
+    group: "Per Diems", // 12.
+    fields: [
+      { header: "Total Per Diems Payment", type: "static" }, 
+      { header: "Lunch", type: "editable" },
+      { header: "Breakfast", type: "editable" },
+      { header: "Overnight", type: "editable" },
+      { header: "Other Per Diems", type: "editable" },
+      { header: "Per Diem Comments", type: "editable" }
+    ]
+  },
+  {
+    group: "Driver Totals", // 13.
+    fields: [
+      { header: "Overwrite Basic", type: "editable" },
+      { header: "Overwrite Bonus", type: "editable" },
+      { header: "Driver Extras", type: "editable" }, 
+      { header: "Driver O/T Hours", type: "static" },
+      { header: "Driver Basic", type: "static" },
+      { header: "DRV O/T Payment", type: "static" },
+      { header: "Driver Bonus", type: "static" },
+      { header: "Driver Total Payment", type: "static" }
+    ]
+  },
+  {
+    group: "Client Totals", // 14.
+    fields: [
+      { header: "NFD Basic Rate", type: "static" },
+      { header: "NFD Overtime Total ", type: "static" },
+      { header: "Fuel Total", type: "static" },
+      { header: "Other Expenses Total", type: "static" },
+      { header: "NFD Total Client Charges", type: "static" }
+
+      
+    ]
+  }
+];
+
+const KIT_HIRE_CONFIG = [
+  {
+    group: "Kit Details",
+    fields: [
+      // DBF Reference is handled in the Sticky Header, but kept here as static for clarity
+      { header: "DBF Reference", type: "static" }, 
+      { header: "Hire No.", type: "editable" },
+      { header: "Client", type: "dropdown" },
+      { header: "Kit Hire / Delivery Options", type: "dropdown" },
+      { header: "Kit Delivery Date", type: "datetime", placeholder: "DD/MM/YYYY" },
+      { header: "Kit Collection Date", type: "datetime", placeholder: "DD/MM/YYYY" },
+      { header: "Kit Total", type: "editable" },
+      { header: "Kit Comments", type: "editable" }
+    ]
+  }
+];
+
+const NON_WORK_DAY_PER_DIEMS_CONFIG = [
+  {
+    group: "Basic Info",
+    fields: [
+      { header: "DBF Reference", type: "static" }, 
+      { header: "Full Name", type: "static" },
+      { header: "Hire No.", type: "editable" },
+      { header: "Client", type: "dropdown" },
+    ]
+  },
+  {
+    group: "Per Diems Details",
+    fields: [
+      { header: "Per Diems Date", type: "date-only", placeholder: "DD/MM/YYYY" }, // <-- NEW type: date-only
+      { header: "Lunch", type: "editable" },
+      { header: "Breakfast", type: "editable" },
+      { header: "Overnight", type: "editable" },
+      { header: "Other Per Diems", type: "editable" },
+      { header: "Per Diem Comments", type: "editable" },
+      { header: "Total Per Diems Payment", type: "static" }
+    ]
+  }
+];
+
+// *** NEW: POPUP LAYOUT FOR "REPORT FILTER DIALOG" ***
+const REPORT_FILTER_CONFIG = [
+  {
+    group: "Report Filters",
+    fields: [
+      { header: "Client", type: "dropdown" },
+      { header: "Booking Type", type: "dropdown" }, // <-- ADDED BOOKING TYPE
+      { header: "Date Range", type: "date-range-options" }, // Custom type for preset options
+      { header: "Start Date", type: "date-only", placeholder: "DD/MM/YYYY" },
+      { header: "End Date", type: "date-only", placeholder: "DD/MM/YYYY" }
+    ]
+  }
+];
+
+
+/**************************************************************************************************
+ *
+ * SCRIPT 1: CORE TRIGGERS & MENU
+ * This section handles all automated events:
+ * - onOpen: Creates the menu when the sheet is opened.
+ * - doPost: The webhook that receives data from JotForm.
+ * - onCheckboxEdit: The trigger that watches for the "Review" checkbox.
+ *
+ **************************************************************************************************/
+
+/**
+ * Creates the custom "➡️ Data Processing" menu when the sheet is opened.
+ * Also runs the Data Integrity Check.
+ */
+function onOpen() {
+  runDataIntegrityCheck(); // <-- Call the check first
+
+  SpreadsheetApp.getUi()
+    .createMenu('➡️ Data Processing')
+    .addItem('Process Completed Forms', 'processCompletedForms')
+    .addSeparator() 
+    .addItem('Un-archive Selected Row(s)', 'unArchiveSelectedRow') 
+    .addSeparator()
+    .addItem('Calculate BTA (All Rows)', 'calculateBTA') 
+    .addItem('Calculate Day Streaks (All Rows)', 'calculateConsecutiveDayStreaks')
+    .addSeparator()
+    .addItem('👁️ View: Approve FUDs', 'setViewApproveFUDs') 
+    .addItem('👀 View: Show All Columns', 'showAllColumns')   
+    .addSeparator()
+    .addItem('View Reports Filter', 'showReportFilterDialog') // <-- NEW MENU ITEM
+    .addItem('Sync Archive Structure', 'syncArchiveStructure')
+    .addItem('⚠️ Run Header Diagnostic', 'checkScriptSpelling') // Added your diagnostic tool
+    .addToUi();
+}
+
+/**
+ * Main webhook that runs when JotForm sends new data.
+ * It waits 10s, adds new rows, logs them, and sorts the sheet.
+ */
+function doPost(e) {
+  const lock = LockService.getScriptLock();
+  // --- FIXED: Reduced lock wait time to 5 seconds.
+  if (!lock.tryLock(5000)) { 
+    Logger.log('Could not get lock - another instance is running.');
+    // Check for another instance running log should use the lock failure message
+    return ContentService.createTextOutput("Error: Script is busy. Lock timeout.");
+  }
+
+  try {
+    // --- FIXED: Reduced sleep time from 10 seconds to 2 seconds.
+    Utilities.sleep(2000); 
+
+    const sourceSpreadsheet = SpreadsheetApp.openById(SOURCE_SHEET_ID);
+    const sourceSheet = sourceSpreadsheet.getSheetByName(SOURCE_TAB_NAME);
+    const destSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    const destSheet = destSpreadsheet.getSheetByName(DESTINATION_TAB_NAME);
+    let idSheet = destSpreadsheet.getSheetByName(PROCESSED_IDS_TAB_NAME);
+
+    // If the logging sheet doesn't exist, create and hide it.
+    if (!idSheet) {
+      idSheet = destSpreadsheet.insertSheet(PROCESSED_IDS_TAB_NAME);
+      idSheet.getRange('A1').setValue('Processed_DBF_Reference');
+      idSheet.hideSheet();
+    }
+
+    if (!sourceSheet) throw new Error(`Could not find source tab: ${SOURCE_TAB_NAME}`);
+    if (!destSheet) throw new Error(`Could not find destination tab: ${DESTINATION_TAB_NAME}`);
+
+    // Read headers as display values
+    const sourceHeaders = sourceSheet.getRange(1, 1, 1, sourceSheet.getLastColumn()).getDisplayValues()[0];
+    const destHeaders = destSheet.getRange(1, 1, 1, destSheet.getLastColumn()).getDisplayValues()[0];
+    
+    // --- NEW ROBUST MAPPING LOGIC ---
+    // 1. Create a map of normalized (trimmed, lowercase) Source Headers to their index
+    const sourceHeaderMap = {};
+    sourceHeaders.forEach((header, index) => {
+        // Use normalized header as key, index as value
+        sourceHeaderMap[header.trim().toLowerCase()] = index; 
+    });
+    
+    // 2. Build the final column map (DestIndex -> SourceIndex)
+    const headerMap = {};
+    destHeaders.forEach((header, destIndex) => {
+        if (header === "") return;
+        const normalizedHeader = header.trim().toLowerCase();
+        
+        // Look up the normalized header in the Source Map
+        if (sourceHeaderMap.hasOwnProperty(normalizedHeader)) {
+            const sourceIndex = sourceHeaderMap[normalizedHeader];
+            headerMap[destIndex] = sourceIndex;
+        } else {
+            Logger.log(`Warning: Could not find Source column for Destination header: "${header}"`);
+        }
+    });
+    // --- END NEW ROBUST MAPPING LOGIC ---
+
+    const sourceKeyColIndex = sourceHeaders.indexOf(KEY_COLUMN_HEADER);
+    const statusColIndex = destHeaders.indexOf(STATUS_COLUMN_HEADER);
+
+    if (sourceKeyColIndex === -1) throw new Error(`Could not find key header "${KEY_COLUMN_HEADER}" in source sheet.`);
+
+    // Note: Since sourceHeaders is used to get the index, but we mapped on normalized headers,
+    // we must ensure KEY_COLUMN_HEADER itself is robustly handled, which it is, 
+    // but let's recalculate the index using the robust map for safety.
+    const keyNormalized = KEY_COLUMN_HEADER.trim().toLowerCase();
+    const sourceKeyColIndexRobust = sourceHeaderMap.hasOwnProperty(keyNormalized) ? sourceHeaderMap[keyNormalized] : -1;
+    
+    if (sourceKeyColIndexRobust === -1) throw new Error(`Could not find key header "${KEY_COLUMN_HEADER}" in source sheet (Robust Check Failed).`);
+
+    // Get all IDs we've already imported to prevent duplicates.
+    const idLastRow = idSheet.getLastRow();
+    const existingKeys = new Set();
+    if (idLastRow > 1) {
+      const keyData = idSheet.getRange(2, 1, idLastRow - 1, 1).getValues();
+      keyData.forEach(row => { if (row[0] !== '') existingKeys.add(row[0]); });
+    }
+    
+    Logger.log(`Found ${existingKeys.size} existing DBF keys in ${PROCESSED_IDS_TAB_NAME}.`);
+
+    const sourceData = sourceSheet.getRange(2, 1, sourceSheet.getLastRow() - 1, sourceHeaders.length).getValues();
+    
+    const rowsToAdd = [];
+    const idsToAdd = [];
+
+    // Loop all source rows and find new ones.
+    sourceData.forEach((sourceRow, index) => {
+      // Use the robust index here
+      const key = sourceRow[sourceKeyColIndexRobust]; 
+      
+      // --- DEBUGGING LOGIC ADDED HERE ---
+      if (key === '') {
+        Logger.log(`Row ${index + 2} skipped: Key (DBF Reference) is blank.`);
+        return;
+      }
+      if (existingKeys.has(key)) {
+        Logger.log(`Row ${index + 2} skipped: Key "${key}" already exists in the ProcessedIDs log.`);
+        return;
+      }
+      // --- END DEBUGGING LOGIC ---
+      
+      // If the row is new, build it using our header map.
+      if (key !== '' && !existingKeys.has(key)) {
+        const newRow = new Array(destHeaders.length).fill('');
+        for (const destIndex in headerMap) {
+          const sourceIndex = headerMap[destIndex];
+          newRow[destIndex] = sourceRow[sourceIndex];
+        }
+        rowsToAdd.push(newRow);
+        idsToAdd.push([key]); 
+        existingKeys.add(key); // Add to set to prevent double-adding from this same batch.
+      }
+    });
+    
+    const destLastRow = destSheet.getLastRow();
+
+    if (rowsToAdd.length > 0) {
+      const newRowsStartRow = destLastRow + 1;
+      // Paste all new rows at once.
+      destSheet.getRange(newRowsStartRow, 1, rowsToAdd.length, destHeaders.length).setValues(rowsToAdd);
+      
+      // Add the "Approved/Rejected" dropdown to the new rows.
+      if (statusColIndex !== -1) {
+        const statusColRange = destSheet.getRange(newRowsStartRow, statusColIndex + 1, rowsToAdd.length, 1);
+        const rule = SpreadsheetApp.newDataValidation()
+          .requireValueInList(STATUS_OPTIONS, true)
+          .setAllowInvalid(false)
+          .build();
+        statusColRange.setDataValidation(rule);
+      }
+      
+      // Add the new IDs to our master log.
+      idSheet.getRange(idLastRow + 1, 1, idsToAdd.length, 1).setValues(idsToAdd);
+      Logger.log(`Successfully added ${rowsToAdd.length} new rows.`);
+    } else {
+      Logger.log('No new rows found.');
+    }
+    
+    // Sort the entire sheet by DBF Reference (descending).
+    const destKeyColIndex = destHeaders.indexOf(KEY_COLUMN_HEADER);
+    if (destKeyColIndex === -1) {
+      Logger.log(`Could not find sort header "${KEY_COLUMN_HEADER}" in destination sheet.`);
+      return;
+    }
+    
+    const destSortColumn = destKeyColIndex + 1;
+    const newLastRow = destSheet.getLastRow();
+    const lastCol = destSheet.getLastColumn();
+    
+    if (newLastRow > 1) { 
+      const dataRange = destSheet.getRange(2, 1, newLastRow - 1, lastCol);
+      dataRange.sort({ column: destSortColumn, ascending: false });
+      Logger.log('Sheet sorted.');
+    }
+
+  } catch (err) {
+    Logger.log(`Error in doPost: ${err}`);
+  } finally {
+    lock.releaseLock();
+  }
+  
+  return ContentService.createTextOutput("Success");
+}
+
+
+/**
+ * This is the Installable "OnEdit" trigger. It watches for edits on the sheet.
+ * If the "Review" checkbox is ticked, it opens the approval popup.
+ */
+function onCheckboxEdit(e) {
+  const range = e.range;
+  const sheet = range.getSheet();
+  
+  if (sheet.getName() !== DESTINATION_TAB_NAME) return;
+  if (e.value !== "TRUE") return; 
+
+  const editedCol = range.getColumn();
+  const headerValue = sheet.getRange(1, editedCol).getValue();
+  
+  if (headerValue !== REVIEW_TRIGGER_COL_HEADER) return;
+
+  const row = range.getRow();
+  if (row === 1) return; // Ignore header row
+
+  // Uncheck the box immediately so it can be clicked again
+  range.setValue(false);
+  // Open the main popup
+  showApprovalDialog(sheet, row);
+}
+
+
+/**************************************************************************************************
+ *
+ * SCRIPT 2: DATA PROCESSING (MENU FUNCTIONS)
+ * These are the main functions for moving data, run from the custom menu.
+ *
+ **************************************************************************************************/
+
+/**
+ * Runs from the menu. Finds all "Approved"/"Rejected" rows
+ * and archives them one by one.
+ */
+function processCompletedForms() { 
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const destSheet = ss.getSheetByName(DESTINATION_TAB_NAME);
+  
+  ss.toast('Processing all completed forms...', 'Archiver', 20);
+
+  try {
+    const headers = destSheet.getRange(1, 1, 1, destSheet.getLastColumn()).getDisplayValues()[0];
+    const statusColIndex = headers.findIndex(h => h.trim() === STATUS_COLUMN_HEADER.trim());
+
+    if (statusColIndex === -1) {
+      throw new Error(`Error: Could not find column header "${STATUS_COLUMN_HEADER}"`);
+    }
+
+    const dataRange = destSheet.getRange(2, 1, destSheet.getLastRow() - 1, destSheet.getLastColumn());
+    if (dataRange.getNumRows() < 1) {
+        SpreadsheetApp.getUi().alert('No data to process.');
+        return;
+    };
+    
+    const data = dataRange.getValues(); 
+    const rowNumbersToDelete = []; 
+
+    // Find all rows to archive
+    data.forEach((row, index) => {
+      const status = row[statusColIndex];
+      if (status === "Approved" || status === "Rejected") {
+        rowNumbersToDelete.push(index + 2); // +2 because data starts at row 2
+      }
+    });
+
+    if (rowNumbersToDelete.length === 0) {
+      SpreadsheetApp.getUi().alert('No rows with "Approved" or "Rejected" status were found to process.');
+      return;
+    }
+    
+    ss.toast(`Found ${rowNumbersToDelete.length} rows to archive. Please wait...`, 'Archiver', 20);
+
+    // Loop *backwards* to delete rows safely
+    for (let i = rowNumbersToDelete.length - 1; i >= 0; i--) {
+      _archiveSingleRow(rowNumbersToDelete[i]);
+    }
+
+    SpreadsheetApp.getUi().alert(`Successfully processed and moved ${rowNumbersToDelete.length} rows to the '${ARCHIVE_TAB_NAME}' sheet.`);
+
+  } catch(e) {
+    Logger.log(`Error in processCompletedForms: ${e}`);
+    SpreadsheetApp.getUi().alert(`An error occurred: ${e.message}`);
+  }
+}
+
+
+/**
+ * Runs from the menu. Moves selected rows from 'ProcessedForms' back to 'ImportedData'.
+ * It auto-detects formula columns, clears status fields, and re-sorts.
+ */
+function unArchiveSelectedRow() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const activeSheet = ss.getActiveSheet();
+  
+  if (activeSheet.getName() !== ARCHIVE_TAB_NAME) {
+    SpreadsheetApp.getUi().alert(`This function only works on the '${ARCHIVE_TAB_NAME}' sheet.`);
+    return;
+  }
+
+  const activeRange = ss.getActiveRange();
+  if (activeRange.getRow() === 1) {
+    SpreadsheetApp.getUi().alert('Please select data rows, not the header row.');
+    return;
+  }
+
+  const destSheet = ss.getSheetByName(DESTINATION_TAB_NAME);
+  if (!destSheet) {
+    SpreadsheetApp.getUi().alert(`Error: Cannot find the '${DESTINATION_TAB_NAME}' sheet.`);
+    return;
+  }
+
+  // Get headers (as text) and a list of formulas (to protect them).
+  const sourceHeaders = activeSheet.getRange(1, 1, 1, activeSheet.getLastColumn()).getDisplayValues()[0];
+  const destHeaders = destSheet.getRange(1, 1, 1, destSheet.getLastColumn()).getDisplayValues()[0];
+  const destFormulas = destSheet.getRange(1, 1, 1, destSheet.getLastColumn()).getFormulas()[0];
+  
+  // Get the *full rows* of data for the user's selection, as visible text.
+  const firstRow = activeRange.getRow();
+  const numRows = activeRange.getNumRows();
+  const lastCol = activeSheet.getLastColumn();
+  const sourceData = activeSheet.getRange(firstRow, 1, numRows, lastCol).getDisplayValues();
+
+  // Get a list of row numbers to delete later.
+  const sourceRowNumbers = [];
+  for (let i = 0; i < numRows; i++) {
+    sourceRowNumbers.push(firstRow + i);
+  }
+
+  // Find the "Approval Status" and "Approval Notes" columns.
+  const statusColIndex = destHeaders.indexOf(STATUS_COLUMN_HEADER);
+  const notesColIndex = destHeaders.indexOf(APPROVAL_NOTES_HEADER); 
+
+  // Build a "Formula-Aware" Smart Map
+  const headerMap = {};
+  destHeaders.forEach((header, destIndex) => {
+    // Check if the destination column header cell has a formula
+    const hasFormula = destFormulas[destIndex] !== "";
+    // This is the "formula-aware" logic: Skip this column if it's blank or has a formula.
+    if (header === "" || hasFormula) return; 
+
+    const sourceIndex = sourceHeaders.indexOf(header);
+    if (sourceIndex !== -1) {
+      headerMap[destIndex] = sourceIndex; // Map: Dest Col -> Source Col
+    }
+  });
+
+  if (Object.keys(headerMap).length === 0 && (statusColIndex === -1 && notesColIndex === -1)) {
+    SpreadsheetApp.getUi().alert("Error: Could not map any headers. Are the headers on 'ImportedData' correct?");
+    return;
+  }
+
+  // Build the new rows, ready for pasting.
+  const finalRowsToMove = [];
+  sourceData.forEach(sourceRow => {
+    const newDestRow = new Array(destHeaders.length).fill('');
+    
+    // Paste mapped data (this automatically skips formula columns).
+    for (const destIndex in headerMap) {
+      const sourceIndex = headerMap[destIndex];
+      newDestRow[destIndex] = sourceRow[sourceIndex];
+    }
+
+    // Reset status and notes to blank.
+    if (statusColIndex !== -1) newDestRow[statusColIndex] = "";
+    if (notesColIndex !== -1) newDestRow[notesColIndex] = "";
+
+    finalRowsToMove.push(newDestRow);
+  });
+
+  try {
+    // Paste rows at the bottom of ImportedData.
+    const newRowsStartRow = destSheet.getLastRow() + 1;
+    destSheet.getRange(newRowsStartRow, 1, finalRowsToMove.length, finalRowsToMove[0].length).setValues(finalRowsToMove);
+    SpreadsheetApp.flush(); // Force the paste.
+
+    // Restore the dropdown menu *only* to the newly pasted row(s).
+    if (statusColIndex !== -1) {
+      const rule = SpreadsheetApp.newDataValidation()
+        .requireValueInList(STATUS_OPTIONS, true)
+        .setAllowInvalid(false)
+        .build();
+      const statusColRange = destSheet.getRange(newRowsStartRow, statusColIndex + 1, finalRowsToMove.length, 1);
+      statusColRange.setDataValidation(rule);
+    }
+
+    // Delete the original rows from ProcessedForms.
+    for (let i = sourceRowNumbers.length - 1; i >= 0; i--) {
+      activeSheet.deleteRow(sourceRowNumbers[i]);
+    }
+
+    // Re-sort the sheet after adding the row.
+    const destKeyColIndex = destHeaders.indexOf(KEY_COLUMN_HEADER);
+    const newLastRow = destSheet.getLastRow(); 
+    if (destKeyColIndex !== -1 && newLastRow > 1) {
+      const destSortColumn = destKeyColIndex + 1;
+      const lastCol = destSheet.getLastColumn();
+      destSheet.getRange(2, 1, newLastRow - 1, lastCol).sort({ column: destSortColumn, ascending: false });
+    }
+    
+    SpreadsheetApp.getUi().alert(`Successfully moved ${finalRowsToMove.length} row(s) back to 'ImportedData'.`);
+
+  } catch (e) {
+    Logger.log(e);
+    SpreadsheetApp.getUi().alert(`An error occurred: ${e.message}. No data was moved or deleted.`);
+  }
+}
+
+
+/**************************************************************************************************
+ *
+ * SCRIPT 3: VIEW & CALCULATION FUNCTIONS (MENU)
+ * These functions are for data analysis and UI views.
+ *
+ **************************************************************************************************/
+
+/**
+ * Runs from the menu. Hides all columns NOT in the 'VIEW_APPROVE_FUDS_COLUMNS' list.
+ */
+function setViewApproveFUDs() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(DESTINATION_TAB_NAME);
+  
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert(`Cannot find sheet: ${DESTINATION_TAB_NAME}`);
+    return;
+  }
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+  
+  headers.forEach((header, index) => {
+    const colIndex = index + 1;
+    
+    if (VIEW_APPROVE_FUDS_COLUMNS.includes(header) || VIEW_APPROVE_FUDS_COLUMNS.includes(header.trim())) {
+      sheet.showColumns(colIndex);
+    } else {
+      sheet.hideColumns(colIndex);
+    }
+  });
+  
+  ss.toast('View updated: Approve FUDs', 'View Manager');
+}
+
+/**
+ * Runs from the menu. Resets the view by unhiding all columns.
+ */
+function showAllColumns() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(DESTINATION_TAB_NAME);
+  if (!sheet) return;
+  
+  sheet.showColumns(1, sheet.getLastColumn());
+  ss.toast('All columns visible', 'View Manager');
+}
+
+/**
+ * Calculates the BTA penalty for all "2. Film - Day Rate" jobs.
+ * Scans both 'ImportedData' and 'ProcessedForms' for a full history.
+ */
+function calculateBTA(isAutomated = false) { 
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(DESTINATION_TAB_NAME);
+  const archiveSheet = ss.getSheetByName(ARCHIVE_TAB_NAME); 
+
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert(`Error: Cannot find sheet "${DESTINATION_TAB_NAME}".`);
+    return;
+  }
+  if (!archiveSheet) {
+    Logger.log(`Warning: Cannot find archive sheet "${ARCHIVE_TAB_NAME}". BTA may be incomplete.`);
+  }
+
+  // --- BTA Configuration ---
+  const BOOKING_TYPE_HEADER = "Booking Type";
+  const DRIVER_NAME_HEADER = "Full Name";
+  const CLIENT_NAME_HEADER = "Client";
+  const START_TIME_HEADER = "Client Start Time";
+  const FINISH_TIME_HEADER = "Client Finish Time";
+  const KEY_COLUMN_HEADER = "DBF Reference"; 
+  const BTA_OUTPUT_HEADER = "BTA Hours";
+  const TARGET_BOOKING_TYPE = "2. Film - Day Rate"; 
+  // --- End Configuration ---
+  
+  if (!isAutomated) {
+    ss.toast('Starting BTA calculation... Reading all shift history...', 'BTA Calculator', 60);
+  }
+
+  const dataRange = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn());
+  const allValues = dataRange.getValues();
+  const headers = allValues[0];
+  const data = allValues.slice(1);
+
+  const errors = [];
+  const requiredHeaders = [
+    BOOKING_TYPE_HEADER, DRIVER_NAME_HEADER, CLIENT_NAME_HEADER, 
+    START_TIME_HEADER, FINISH_TIME_HEADER, KEY_COLUMN_HEADER
+  ];
+
+  // Map the required column indices
+  const cols = {};
+  requiredHeaders.forEach(header => {
+      cols[header] = headers.indexOf(header);
+      if (cols[header] === -1) {
+          errors.push(header);
+      }
+  });
+
+  if (errors.length > 0) {
+    SpreadsheetApp.getUi().alert(`Error on '${DESTINATION_TAB_NAME}': Script stopped. Could not find all required columns: ${errors.join(', ')}`);
+    return;
+  }
+  
+  // Assign mapped indices
+  const typeCol = cols[BOOKING_TYPE_HEADER];
+  const driverCol = cols[DRIVER_NAME_HEADER];
+  const clientCol = cols[CLIENT_NAME_HEADER];
+  const startCol = cols[START_TIME_HEADER];
+  const finishCol = cols[FINISH_TIME_HEADER];
+  const keyCol = cols[KEY_COLUMN_HEADER];
+  
+  let btaCol = headers.indexOf(BTA_OUTPUT_HEADER);
+  
+  // Create BTA column if missing
+  if (btaCol === -1) {
+    btaCol = headers.length;
+    sheet.getRange(1, btaCol + 1).setValue(BTA_OUTPUT_HEADER);
+    Logger.log(`Created column: ${BTA_OUTPUT_HEADER}`);
+  }
+
+  // === PASS 1: Build the Universal Shift Map ===
+  const shiftMap = {};
+  
+  const addRowToMap = (row, key, tCol, dCol, cCol, sCol, fCol) => {
+    try {
+      const bookingType = row[tCol];
+      const driverName = row[dCol];
+      const clientName = row[cCol];
+      const startTime = row[sCol];
+      const finishTime = row[fCol];
+      const dbfRef = row[key];
+
+      if (bookingType === TARGET_BOOKING_TYPE && driverName && clientName && startTime && finishTime && dbfRef) {
+        const start = new Date(startTime);
+        const finish = new Date(finishTime);
+        
+        if (!isNaN(start.getTime()) && !isNaN(finish.getTime())) {
+          if (!shiftMap[driverName]) shiftMap[driverName] = {};
+          if (!shiftMap[driverName][clientName]) shiftMap[driverName][clientName] = [];
+          
+          shiftMap[driverName][clientName].push({
+            id: dbfRef,
+            start: start,
+            finish: finish
+          });
+        }
+      }
+    } catch (e) {
+      // Ignore errors from bad rows
+    }
+  };
+
+  Logger.log(`Mapping shifts from ${DESTINATION_TAB_NAME}...`);
+  data.forEach(row => {
+    addRowToMap(row, keyCol, typeCol, driverCol, clientCol, startCol, finishCol);
+  });
+
+  if (archiveSheet && archiveSheet.getLastRow() > 1) {
+    Logger.log(`Mapping shifts from ${ARCHIVE_TAB_NAME}...`);
+    const ar_dataRange = archiveSheet.getRange(1, 1, archiveSheet.getLastRow(), archiveSheet.getLastColumn());
+    const ar_allValues = ar_dataRange.getValues();
+    const ar_headers = ar_allValues[0];
+    const ar_data = ar_allValues.slice(1).filter(r => r.some(c => c)); 
+
+    // Re-check headers on the Archive sheet
+    const ar_cols = {};
+    const ar_errors = [];
+    requiredHeaders.forEach(header => {
+        ar_cols[header] = ar_headers.indexOf(header);
+        if (ar_cols[header] === -1) {
+            ar_errors.push(header);
+        }
+    });
+
+    if (ar_errors.length > 0) {
+      Logger.log(`Warning: Could not find required headers in '${ARCHIVE_TAB_NAME}' (${ar_errors.join(', ')}). Archived shifts will be ignored.`);
+    } else {
+      ar_data.forEach(row => {
+        addRowToMap(
+            row, 
+            ar_cols[KEY_COLUMN_HEADER], 
+            ar_cols[BOOKING_TYPE_HEADER], 
+            ar_cols[DRIVER_NAME_HEADER], 
+            ar_cols[CLIENT_NAME_HEADER], 
+            ar_cols[START_TIME_HEADER], 
+            ar_cols[FINISH_TIME_HEADER]
+        );
+      });
+    }
+  }
+
+  // === PASS 2: Calculate BTA and build output array ===
+  Logger.log('Map built. Calculating BTA for all rows...');
+  const btaResults = [];
+  const MS_IN_HOUR = 1000 * 60 * 60;
+
+  data.forEach((row, index) => {
+    const bookingType = row[typeCol];
+    const driverName = row[driverCol];
+    const clientName = row[clientCol];
+    const currentStart = row[startCol];
+    const currentId = row[keyCol];
+
+    let finalBtaValue = ""; 
+    let smallestGap = Infinity;
+
+    if (bookingType === TARGET_BOOKING_TYPE && driverName && clientName && currentStart) {
+      const currentStartTime = new Date(currentStart);
+
+      if (!isNaN(currentStartTime.getTime()) && shiftMap[driverName] && shiftMap[driverName][clientName]) {
+        const relevantShifts = shiftMap[driverName][clientName];
+
+        for (const otherShift of relevantShifts) {
+          if (otherShift.id === currentId) continue; 
+          
+          const gapInMillis = currentStartTime.getTime() - otherShift.finish.getTime();
+          
+          if (gapInMillis > 0 && gapInMillis < smallestGap) {
+            smallestGap = gapInMillis;
+          }
+        }
+      }
+
+      if (smallestGap !== Infinity) {
+        
+        const rawBtaInHours = smallestGap / MS_IN_HOUR;
+        const bta_floor = Math.floor(rawBtaInHours * 100) / 100;
+
+        if (bta_floor < 11) {
+          const penalty = 11 - bta_floor;
+          finalBtaValue = Math.ceil(penalty / 0.25) * 0.25;
+        } else {
+          finalBtaValue = ""; 
+        }
+      }
+    }
+    
+    btaResults.push([finalBtaValue]);
+  });
+
+  if (btaResults.length > 0) {
+    const outputRange = sheet.getRange(2, btaCol + 1, btaResults.length, 1);
+    outputRange.setValues(btaResults);
+    outputRange.setNumberFormat("0.00"); 
+  }
+
+  if (!isAutomated) {
+    ss.toast('BTA calculation complete.', 'BTA Calculator', 5);
+  }
+}
+
+/**
+ * Calculates 6th/7th consecutive day flags for "2. Film - Day Rate" jobs.
+ * Enforces checkbox validation on the output columns.
+ */
+function calculateConsecutiveDayStreaks(isAutomated = false) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(DESTINATION_TAB_NAME);
+  const archiveSheet = ss.getSheetByName(ARCHIVE_TAB_NAME);
+
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert(`Error: Cannot find sheet "${DESTINATION_TAB_NAME}".`);
+    return;
+  }
+  if (!archiveSheet) {
+    Logger.log(`Warning: Cannot find archive sheet "${ARCHIVE_TAB_NAME}". Streak calc may be incomplete.`);
+  }
+
+  // --- Configuration ---
+  const BOOKING_TYPE_HEADER = "Booking Type";
+  const DRIVER_NAME_HEADER = "Full Name";
+  const CLIENT_NAME_HEADER = "Client";
+  const START_TIME_HEADER = "Client Start Time";
+  const OUTPUT_HEADER_6 = "6th Day?"; // Note: Check against config if this needs to be '6th Day'
+  const OUTPUT_HEADER_7 = "7th Day?"; // Note: Check against config if this needs to be '7th Day'
+  const TARGET_BOOKING_TYPE = "2. Film - Day Rate";
+  const TICK_VALUE = true;    
+  const BLANK_VALUE = false;  
+  // --- End Configuration ---
+  
+  if (!isAutomated) {
+    ss.toast('Starting Consecutive Day calculation...', 'Streak Calculator', 60);
+  }
+
+  const mainDataRange = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn());
+  const mainValues = mainDataRange.getValues();
+  const mainHeaders = mainValues[0];
+  let mainData;
+  if (sheet.getLastRow() > 1) {
+    mainData = mainValues.slice(1);
+  } else {
+    mainData = []; // Handle empty sheet
+  }
+
+  const errors = [];
+  const requiredHeaders = [
+    BOOKING_TYPE_HEADER, DRIVER_NAME_HEADER, CLIENT_NAME_HEADER, 
+    START_TIME_HEADER, OUTPUT_HEADER_6, OUTPUT_HEADER_7
+  ];
+
+  // Map the required column indices
+  const cols = {};
+  requiredHeaders.forEach(header => {
+      cols[header] = mainHeaders.indexOf(header);
+      if (cols[header] === -1) {
+          errors.push(header);
+      }
+  });
+
+  if (errors.length > 0) {
+    SpreadsheetApp.getUi().alert(`Error: Script stopped. Could not find required columns in '${DESTINATION_TAB_NAME}':\n\n${errors.join('\n')}`);
+    return;
+  }
+
+  // Assign mapped indices
+  const typeCol = cols[BOOKING_TYPE_HEADER];
+  const driverCol = cols[DRIVER_NAME_HEADER];
+  const clientCol = cols[CLIENT_NAME_HEADER];
+  const startCol = cols[START_TIME_HEADER];
+  const outputCol6 = cols[OUTPUT_HEADER_6];
+  const outputCol7 = cols[OUTPUT_HEADER_7];
+  
+  // Apply Checkbox Validation
+  const checkboxRule = SpreadsheetApp.newDataValidation().requireCheckbox().build();
+  const maxRows = sheet.getMaxRows();
+  
+  sheet.getRange(2, outputCol6 + 1, maxRows - 1, 1)
+       .setDataValidation(checkboxRule);
+  sheet.getRange(2, outputCol7 + 1, maxRows - 1, 1)
+       .setDataValidation(checkboxRule);
+
+  // === 4. PASS 1: Build the Universal Date Map ===
+  const dateMap = {};
+  const normalizeDateToYYYYMMDD = (timestamp) => {
+    try {
+      const d = new Date(timestamp);
+      return d.toISOString().split('T')[0];
+    } catch (e) {
+      return null;
+    }
+  };
+  
+  const addDateToMap = (row, tCol, dCol, cCol, sCol) => {
+    const bookingType = row[tCol];
+    const driverName = row[dCol];
+    const clientName = row[cCol];
+    const startTime = row[sCol];
+    if (bookingType === TARGET_BOOKING_TYPE && driverName && clientName && startTime) {
+      const dateKey = normalizeDateToYYYYMMDD(startTime);
+      if (dateKey) {
+        if (!dateMap[driverName]) dateMap[driverName] = {};
+        if (!dateMap[driverName][clientName]) dateMap[driverName][clientName] = new Set();
+        dateMap[driverName][clientName].add(dateKey);
+      }
+    }
+  };
+
+  Logger.log(`Mapping dates from ${DESTINATION_TAB_NAME}...`);
+  mainData.forEach(row => {
+    addDateToMap(row, typeCol, driverCol, clientCol, startCol);
+  });
+
+  if (archiveSheet && archiveSheet.getLastRow() > 1) {
+    Logger.log(`Mapping dates from ${ARCHIVE_TAB_NAME}...`);
+    const ar_dataRange = archiveSheet.getRange(1, 1, archiveSheet.getLastRow(), archiveSheet.getLastColumn());
+    const ar_allValues = ar_dataRange.getValues();
+    const ar_headers = ar_allValues[0];
+    const ar_data = ar_allValues.slice(1);
+    
+    // Re-check headers on the Archive sheet
+    const ar_cols = {};
+    const ar_errors = [];
+    [BOOKING_TYPE_HEADER, DRIVER_NAME_HEADER, CLIENT_NAME_HEADER, START_TIME_HEADER].forEach(header => {
+        ar_cols[header] = ar_headers.indexOf(header);
+        if (ar_cols[header] === -1) {
+            ar_errors.push(header);
+        }
+    });
+
+    if (ar_errors.length > 0) {
+      Logger.log(`Warning: Could not find required headers in '${ARCHIVE_TAB_NAME}' (${ar_errors.join(', ')}). Archived dates will be ignored.`);
+    } else {
+      ar_data.forEach(row => {
+        addDateToMap(
+            row, 
+            ar_cols[BOOKING_TYPE_HEADER], 
+            ar_cols[DRIVER_NAME_HEADER], 
+            ar_cols[CLIENT_NAME_HEADER], 
+            ar_cols[START_TIME_HEADER]
+        );
+      });
+    }
+  }
+
+  // === 5. PASS 2: Check Streaks and build output arrays ===
+  Logger.log('Date map built. Calculating exact streaks...');
+  
+  const results6th = [];
+  const results7th = [];
+  const oneDayInMillis = 1000 * 60 * 60 * 24;
+
+  for (const row of mainData) {
+    const bookingType = row[typeCol];
+    const driverName = row[driverCol];
+    const clientName = row[clientCol];
+    const startTime = row[startCol];
+
+    let output6 = BLANK_VALUE; 
+    let output7 = BLANK_VALUE; 
+
+    if (bookingType === TARGET_BOOKING_TYPE && driverName && clientName && startTime) {
+      const dateSet = dateMap[driverName]?.[clientName];
+      const currentDate = new Date(startTime);
+
+      if (dateSet && !isNaN(currentDate.getTime())) {
+        
+        let streakLength = 0;
+        for (let i = 0; i < 100; i++) { // Check up to 100 days back
+          const checkDate = new Date(currentDate.getTime() - (i * oneDayInMillis));
+          const dateKey = normalizeDateToYYYYMMDD(checkDate);
+          
+          if (dateSet.has(dateKey)) {
+            streakLength++;
+          } else {
+            break;  
+          }
+        }
+
+        if (streakLength === 6) {
+          output6 = TICK_VALUE; 
+        } else if (streakLength === 7) {
+          output7 = TICK_VALUE; 
+        }
+      }
+    }
+    results6th.push([output6]);
+    results7th.push([output7]);
+  }
+
+  if (mainData.length > 0) {
+    sheet.getRange(2, outputCol6 + 1, results6th.length, 1).setValues(results6th);
+    sheet.getRange(2, outputCol7 + 1, results7th.length, 1).setValues(results7th);
+  }
+
+  if (!isAutomated) {
+    ss.toast('Streak calculation complete.', 'Streak Calculator', 5);
+  }
+}
+
+/**
+ * The main function that builds and displays the dynamic HTML popup window.
+ * This is called by the `onCheckboxEdit` trigger.
+ */
+function showApprovalDialog(sheet, row) {
+  const ui = SpreadsheetApp.getUi();
+  // Get the dropdown options from our 'DataValidation' sheet
+  const POPUP_DROPDOWNS = getDynamicDropdowns(); 
+
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+  const rowData = sheet.getRange(row, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+
+  // === OPTIMIZATION: CREATE A SINGLE LOOKUP MAP FOR ALL HEADERS ===
+  const headerMap = {};
+  headers.forEach((h, i) => {
+    // Map the trimmed header name to its column index
+    headerMap[h.trim()] = i; 
+  });
+  
+  // --- Helper Function for "Smart" Header Index Finding ---
+  const findHeader = (name) => headerMap.hasOwnProperty(name.trim()) ? headerMap[name.trim()] : -1;
+  
+  const getValue = (name) => {
+    const index = findHeader(name);
+    return (index !== -1) ? rowData[index] : "";
+  };
+  // Helper to check for zero/empty/£0 values
+  const isZero = (val) => (!val || val.trim() === "" || val.trim() === "0" || val.trim() === "0.00" || val.trim() === "£ 0.00" || val.trim() === "£0.00");
+  
+  // Helper to extract City from Address (Your existing function is fine, but it relies on an external definition)
+  const getCity = (address) => {
+    if (!address) return "";
+    const postcodeRegex = /[A-Z]{1,2}[0-9R][0-9A-Z]? [0-9][A-Z]{2}$/i;
+    let cleanedAddress = address
+      .replace(", UK", "") 
+      .replace(", United Kingdom", "")
+      .replace(postcodeRegex, ""); 
+
+    const parts = cleanedAddress.split(',');
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const part = parts[i].trim();
+      if (part) {
+        const spaceParts = part.split(' ');
+        if (spaceParts.length > 1) {
+          if (/[0-9][A-Z]{2}$/i.test(spaceParts[spaceParts.length - 1])) {
+            return spaceParts.slice(0, -1).join(' ');
+          }
+        }
+        return part; 
+      }
+    }
+    return ""; 
+  };
+
+
+  // --- 1. Build Sticky Header ---
+  const dbfRef = getValue(KEY_COLUMN_HEADER) || `Row ${row}`;
+  const hireNo = getValue("Hire No.");
+  const fullName = getValue("Full Name");
+  const filmUnitDayOptions = getValue("Film Unit Day Options");
+  const client = getValue("Client");
+  const delayStatus = getValue("Delay Status");
+  
+  let stickyTitle = [dbfRef, hireNo, fullName, filmUnitDayOptions, client].filter(Boolean).join(' / '); 
+  
+  let statusHtml = "";
+  if (!delayStatus || isZero(delayStatus)) {
+      statusHtml = `<span class="header-status-green">On-Time</span>`;
+  } else {
+      statusHtml = `<span class="header-status-red">${delayStatus}</span>`;
+  }
+  stickyTitle += ` / ${statusHtml}`;
+
+  // --- 2. Get Key Info for Logic ---
+  const bookingType = getValue("Booking Type");
+  const paymentAgreement = getValue("Payment Agreement"); 
+  const existingNotes = getValue(APPROVAL_NOTES_HEADER);
+  const calcColsJson = JSON.stringify(CALCULATED_COLUMNS);
+  
+  // --- CHOOSE LAYOUT ---
+  let activeLayout = null; 
+  if (bookingType === "2. Film - Day Rate") {
+    activeLayout = FILM_DAY_RATE_CONFIG;
+  } else if (bookingType === "1. Single Journey") {
+    activeLayout = SINGLE_JOURNEY_CONFIG; 
+  } else if (bookingType === "3. Non-Film Day Rate") {
+    activeLayout = NON_FILM_DAY_RATE_CONFIG;
+  } else if (bookingType === "4. Kit Hire") { 
+    activeLayout = KIT_HIRE_CONFIG;
+  } else if (bookingType === "5. Non-Work Day Per Diems") { // <-- NEW LOGIC
+    activeLayout = NON_WORK_DAY_PER_DIEMS_CONFIG;
+  }
+  // ---
+
+  // --- !! STAGED VALIDATION LOGIC !! ---
+  let dayTypeIsMissing = false;
+  let isHoursMissing = false;
+  let isTimeMissing = false;
+  let isFilmUnitDayOptionsMissing = false;
+  
+  let isBookingTimeMissing = false;
+  let isPOBTimeMissing = false;
+  let isClientPriceMissing = false;
+  let isDriverPriceMissing = false;
+  let isHireNoMissing = false; 
+  
+  let isNFDHoursMissing = false;
+  let isKitDataMissing = false;
+  let isNonWorkDayDateMissing = false; // <-- NEW FLAG
+
+  let isDataMissing = false; // This is the master flag
+  let warningMessage = "";   // The message to display
+
+  if (bookingType === "2. Film - Day Rate") {
+    const dayType = getValue("Day Type");
+    const contractedHours = getValue("Contracted Hours");
+    const clientStartTime = getValue("Client Start Time");
+    const clientFinishTime = getValue("Client Finish Time");
+    const filmUnitOptions = getValue("Film Unit Day Options"); 
+
+    dayTypeIsMissing = !dayType;
+    if (dayTypeIsMissing) {
+      isDataMissing = true;
+      warningMessage = "Please select a Day Type and click 'Recalculate' to continue.";
+    } else {
+      isHoursMissing = (isZero(contractedHours) || contractedHours === "Add Day Type");
+      isTimeMissing = (!clientStartTime || !clientFinishTime);
+      isFilmUnitDayOptionsMissing = !filmUnitOptions;
+      isDataMissing = isHoursMissing || isTimeMissing || isFilmUnitDayOptionsMissing;
+      if (isDataMissing) {
+        warningMessage = "Please fill in all required fields and click 'Recalculate' to continue.";
+      }
+    }
+  } else if (bookingType === "1. Single Journey") {
+    isBookingTimeMissing = !getValue("Booking Time");
+    isPOBTimeMissing = !getValue("POB Time");
+    isClientPriceMissing = isZero(getValue("Client SJ Price"));
+    isHireNoMissing = !getValue("Hire No."); 
+    isDriverPriceMissing = false; 
+    if (paymentAgreement === "Owner Driver / Fixed Rate Contractor") {
+      isDriverPriceMissing = isZero(getValue("Driver SJ Price"));
+    }
+    isDataMissing = isBookingTimeMissing || isPOBTimeMissing || isClientPriceMissing || isDriverPriceMissing || isHireNoMissing;
+    if (isDataMissing) {
+      warningMessage = "Please fill in all Journey and Price fields and click 'Recalculate' to continue.";
+    }
+  } else if (bookingType === "3. Non-Film Day Rate") {
+    const udHours = getValue("UD Contracted Hours Override");
+    isNFDHoursMissing = isZero(udHours); 
+    
+    isDataMissing = isNFDHoursMissing; 
+    if (isDataMissing) {
+      warningMessage = "Please confirm Override Hours and Rate details, then click 'Recalculate'.";
+    }
+  } else if (bookingType === "4. Kit Hire") { 
+    const kitTotal = getValue("Kit Total");
+    const deliveryDate = getValue("Kit Delivery Date");
+    const collectionDate = getValue("Kit Collection Date");
+    
+    isKitDataMissing = isZero(kitTotal) || !deliveryDate || !collectionDate; 
+    isDataMissing = isKitDataMissing;
+    
+    if (isDataMissing) {
+      warningMessage = "Please confirm Kit Total, Delivery Date, and Collection Date, then click 'Recalculate'.";
+    }
+  } else if (bookingType === "5. Non-Work Day Per Diems") { // <-- NEW NWD PER DIEMS VALIDATION
+    const perDiemsDate = getValue("Per Diems Date");
+    isNonWorkDayDateMissing = !perDiemsDate;
+    
+    isDataMissing = isNonWorkDayDateMissing;
+    
+    if (isDataMissing) {
+      warningMessage = "Please confirm the Per Diems Date and click 'Recalculate' to continue.";
+    }
+  }
+  // --- END LOGIC ---
+
+  // --- 3. Build HTML String ---
+  let htmlString = `
+    <style>
+      body { font-family: sans-serif; padding: 0; background-color: #f9f9f9; margin: 0; }
+      
+      .header-container { 
+        position: sticky; top: 0; background-color: #f9f9f9; z-index: 100; 
+        display: flex; justify-content: space-between; align-items: center; 
+        border-bottom: 2px solid #ddd; padding: 15px; margin-bottom: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      }
+      h3 { margin: 0; color: #333; font-size: 14px; line-height: 1.4; }
+      
+      .btn-recalc { 
+        padding: 6px 12px; background-color: #17a2b8; color: white; border: none; 
+        border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; margin-left: 10px;
+      }
+      .btn-recalc:hover { background-color: #138496; }
+
+      #form-container { padding: 0 15px; }
+      input[type="text"], select { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; box-sizing: border-box; background-color: white; }
+      input[type="text"]:focus, select:focus { border-color: #66afe9; outline: none; }
+      input.static { background-color: #e9ecef; color: #555; border-color: #ced4da; cursor: not-allowed; }
+      input.input-red { color: #dc3545; font-weight: bold; }
+      
+      .checkbox-group { display: flex; align-items: center; padding: 5px 0; }
+      .checkbox-group input { width: auto; margin-right: 10px; cursor: pointer; transform: scale(1.2); }
+      
+      details { margin-bottom: 10px; background: #fff; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; }
+      summary { padding: 10px; background: #f1f1f1; cursor: pointer; font-weight: bold; font-size: 13px; color: #333; outline: none; }
+      summary:hover { background: #e2e6ea; }
+      .group-content { padding: 15px; }
+      .field-group { margin-bottom: 12px; }
+      .label { display: block; font-weight: bold; color: #555; font-size: 11px; margin-bottom: 4px; }
+
+      .header-part-red { color: #dc3545; font-weight: bold; font-size: 1.1em; }
+      .header-part-green { color: #28a745; font-weight: bold; font-size: 1.1em; }
+      .header-part-label { font-size: 1.0em; color: #555; }
+      .header-status-green { color: #28a745; font-weight: bold; }
+      .header-status-red { color: #dc3545; font-weight: bold; }
+
+      .datetime-container { display: flex; gap: 8px; }
+      .datetime-container input[type="date"] { width: 60%; }
+      .datetime-container input[type="time"] { width: 40%; }
+      input[type="date"], input[type="time"] { 
+        padding: 7px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; 
+        box-sizing: border-box; background-color: white; 
+      }
+      .input-required { border: 1px solid #dc3545; }
+
+      .footer-section { padding: 15px; border-top: 1px solid #ddd; margin-top: 20px; background: #fff; }
+      textarea { width: 100%; height: 60px; border: 1px solid #ccc; border-radius: 4px; padding: 8px; box-sizing: border-box; font-family: sans-serif; }
+      button.main-btn { flex: 1; padding: 12px; border: none; color: white; font-size: 14px; font-weight: bold; cursor: pointer; border-radius: 4px; }
+      .btn-group { margin-top: 15px; display: flex; gap: 10px; }
+      .btn-approve { background-color: #28a745; } 
+      .btn-reject { background-color: #dc3545; }
+      
+      .warning-message {
+        font-size: 14px; color: #dc3545; font-weight: bold; margin-top: 0;
+        padding: 10px; background-color: #fbeeee; border: 1px solid #dc3545; border-radius: 4px;
+      }
+    </style>
+    
+    <div class="header-container">
+      <h3>${stickyTitle}</h3>
+      <button class="btn-recalc" onclick="triggerRecalc()">🔄 Recalculate</button>
+    </div>
+
+    <div id="form-container">
+  `;
+
+  // --- 4. CHOOSE LAYOUT (FILM, SINGLE JOURNEY, OR FALLBACK) ---
+  
+  if (activeLayout && isDataMissing) {
+      // --- BUILD MINI-POPUP (SHOWS ONLY MISSING FIELDS) ---
+      
+      if (bookingType === "2. Film - Day Rate") {
+        htmlString += `
+          <details open><summary>Missing Required Data</summary><div class="group-content">
+            <p class="warning-message">${warningMessage}</p>`;
+        
+        if (dayTypeIsMissing) {
+          htmlString += createFieldHTML("Day Type", "dropdown", headers, rowData, POPUP_DROPDOWNS);
+        } else { 
+          if (isFilmUnitDayOptionsMissing) {
+            htmlString += createFieldHTML("Film Unit Day Options", "dropdown", headers, rowData, POPUP_DROPDOWNS);
+          }
+          if (isHoursMissing) {
+            htmlString += createFieldHTML("UD Contracted Hours Override", "editable", headers, rowData, POPUP_DROPDOWNS);
+          }
+          if (isTimeMissing) {
+            htmlString += createFieldHTML("Client Start Time", "datetime", headers, rowData, POPUP_DROPDOWNS);
+            htmlString += createFieldHTML("Client Finish Time", "datetime", headers, rowData, POPUP_DROPDOWNS);
+          }
+        }
+        htmlString += `</div></details>`;
+
+      } else if (bookingType === "1. Single Journey") {
+        // --- "Confirm Details" MINI-POPUP ---
+        htmlString += `
+          <details open><summary>Confirm Details</summary><div class="group-content">
+            <p class="warning-message">${warningMessage}</p>
+            
+            ${createFieldHTML("Customer Name", "editable", headers, rowData, POPUP_DROPDOWNS)}
+            ${createFieldHTML("Pickup Address", "editable", headers, rowData, POPUP_DROPDOWNS)}
+            ${createFieldHTML("Drop-off Address", "editable", headers, rowData, POPUP_DROPDOWNS)}
+            ${createFieldHTML("Hire No.", "editable", headers, rowData, POPUP_DROPDOWNS)}
+            
+            <hr style="border:none; border-top:1px solid #eee; margin: 20px 0 15px 0;">
+            
+            ${isBookingTimeMissing ? createFieldHTML("Booking Time", "datetime", headers, rowData, POPUP_DROPDOWNS) : ''}
+            ${isPOBTimeMissing ? createFieldHTML("POB Time", "datetime", headers, rowData, POPUP_DROPDOWNS) : ''}
+            ${isClientPriceMissing ? createFieldHTML("Client SJ Price", "editable", headers, rowData, POPUP_DROPDOWNS) : ''}
+            ${isDriverPriceMissing ? createFieldHTML("Driver SJ Price", "editable", headers, rowData, POPUP_DROPDOWNS) : ''}
+            
+          </div></details>`;
+      
+      } else if (bookingType === "3. Non-Film Day Rate") {
+        // --- "Confirm Details" MINI-POPUP for NFD (Only shows if UD Hours is missing) ---
+        htmlString += `
+          <details open><summary>Confirm Details</summary><div class="group-content">
+            <p class="warning-message">${warningMessage}</p>`;
+
+        if (isNFDHoursMissing) {
+          htmlString += createFieldHTML("UD Contracted Hours Override", "editable", headers, rowData, POPUP_DROPDOWNS);
+        }
+        
+        // Show other fields needed for confirmation (Times and Rates)
+        htmlString += createFieldHTML("Client Start Time", "datetime", headers, rowData, POPUP_DROPDOWNS);
+        htmlString += createFieldHTML("Client Finish Time", "datetime", headers, rowData, POPUP_DROPDOWNS);
+        htmlString += createFieldHTML("NFD Client O/T Rate", "static", headers, rowData, POPUP_DROPDOWNS);
+        htmlString += createFieldHTML("NFD O/T Rate Override", "editable", headers, rowData, POPUP_DROPDOWNS);
+
+        htmlString += `</div></details>`;
+      } else if (bookingType === "4. Kit Hire") { // KIT HIRE MINI POPUP
+         htmlString += `
+        <details open><summary>Confirm Kit Details</summary><div class="group-content">
+          <p class="warning-message">${warningMessage}</p>`;
+
+        if (isZero(getValue("Kit Total"))) {
+          htmlString += createFieldHTML("Kit Total", "editable", headers, rowData, POPUP_DROPDOWNS);
+        }
+        if (!getValue("Kit Delivery Date")) {
+          htmlString += createFieldHTML("Kit Delivery Date", "datetime", headers, rowData, POPUP_DROPDOWNS);
+        }
+        if (!getValue("Kit Collection Date")) {
+          htmlString += createFieldHTML("Kit Collection Date", "datetime", headers, rowData, POPUP_DROPDOWNS);
+        }
+        
+        htmlString += createFieldHTML("Hire No.", "editable", headers, rowData, POPUP_DROPDOWNS);
+        htmlString += createFieldHTML("Client", "dropdown", headers, rowData, POPUP_DROPDOWNS);
+        
+        htmlString += `</div></details>`;
+      } else if (bookingType === "5. Non-Work Day Per Diems") { // <-- NWD PER DIEMS MINI POPUP
+         htmlString += `
+        <details open><summary>Confirm Per Diems Date</summary><div class="group-content">
+          <p class="warning-message">${warningMessage}</p>`;
+
+        if (isNonWorkDayDateMissing) {
+          htmlString += createFieldHTML("Per Diems Date", "date-only", headers, rowData, POPUP_DROPDOWNS);
+        }
+        
+        htmlString += createFieldHTML("Hire No.", "editable", headers, rowData, POPUP_DROPDOWNS);
+        htmlString += createFieldHTML("Client", "dropdown", headers, rowData, POPUP_DROPDOWNS);
+        htmlString += createFieldHTML("Full Name", "static", headers, rowData, POPUP_DROPDOWNS);
+
+        htmlString += `</div></details>`;
+      }
+      
+  } else if (activeLayout) {
+      // --- BUILD FULL POPUP (ALL ACCORDIONS) ---
+      activeLayout.forEach((group, gIndex) => {
+        const openAttr = ""; // All closed by default
+        let groupTitle = group.group;
+        let skipGroup = false; 
+
+        if (groupTitle === "Driver Hours") {
+          if (paymentAgreement !== "Employee" && paymentAgreement !== "Hourly Paid Sub-Contractor") {
+            skipGroup = true;
+          }
+        }
+        const formatPaymentHeader = (title, hoursH, rateH, paymentH) => {
+            const hours = getValue(hoursH); const rate = getValue(rateH); const payment = getValue(paymentH);
+            if (isZero(payment)) { skipGroup = true; return title; }
+            if (hours && rate && payment) return `${title} - ${hours} Hour(s) at ${rate} ph - Total ${payment}`;
+            if (payment) return `${title} - Total ${payment}`;
+            return title;
+        };
+        if (groupTitle === "Mileage") {
+            const mileVal = getValue("Calculated Mileage");
+            if (isZero(mileVal)) { skipGroup = true; } else { groupTitle += ` - ${mileVal}`; }
+        }
+        if (groupTitle === "Client Hours") {
+            const hoursVal = getValue("Client Hours"); const dayTypeVal = getValue("Day Type"); const captainVal = getValue("Transport Captain");
+            if (hoursVal) groupTitle += ` - ${hoursVal}`;
+            if (dayTypeVal) groupTitle += ` - ${dayTypeVal}`;
+            if (captainVal === "Transport Captain") groupTitle += ` - Transport Captain`;
+        }
+        if (groupTitle === "Driver Hours") {
+            const hoursVal = getValue("Driver Hours"); const commentsVal = getValue("Driver Hour Comments");
+            if (hoursVal) groupTitle += ` - ${hoursVal}`;
+            if (commentsVal) groupTitle += ` - Check Comments`;
+        }
+        
+        // --- Conditional Logic for Titles ---
+        if (groupTitle === "Journey Details") {
+            const customer = getValue("Customer Name");
+            const pickupCity = getCity(getValue("Pickup Address"));
+            const dropoffCity = getCity(getValue("Drop-off Address"));
+            let titleParts = ["Journey Details"];
+            if (customer) { titleParts.push(customer); }
+            if (pickupCity && dropoffCity) { titleParts.push(`from ${pickupCity} to ${dropoffCity}`); }
+            if (titleParts.length > 1) { groupTitle = titleParts.join(' - '); }
+        }
+        
+        if (groupTitle === "Client Totals") {
+          
+          if (bookingType === "3. Non-Film Day Rate") { // NFD LOGIC
+            const basicVal = getValue("NFD Basic Rate"); 
+            const overtimeVal = getValue("NFD Overtime Total "); 
+            const fuelVal = getValue("Fuel Total");
+            const otherVal = getValue("Other Expenses Total");
+            const totalVal = getValue("NFD Total Client Charges");
+            
+            let titleParts = ["Client Totals"];
+            
+            // Check and push basic
+            if (!isZero(basicVal)) { titleParts.push(`Basic: ${basicVal}`); }
+            
+            // Check and push overtime
+            if (!isZero(overtimeVal)) { titleParts.push(`Overtime: ${overtimeVal}`); }
+            
+            // Check and push fuel
+            if (!isZero(fuelVal)) { titleParts.push(`Fuel: ${fuelVal}`); }
+            
+            // Check and push other
+            if (!isZero(otherVal)) { titleParts.push(`Other: ${otherVal}`); }
+            
+            // Check and push total (with custom styling: red, bold, 1.2em)
+            if (!isZero(totalVal)) { 
+              titleParts.push(`<span style="color: #dc3545; font-weight: bold; font-size: 1.2em;">Total: ${totalVal}</span>`);
+            } 
+            
+            if (titleParts.length > 1) { 
+                groupTitle = titleParts.join(' - '); 
+            }
+
+          } else if (bookingType === "2. Film - Day Rate") { // FUD LOGIC
+            const basicVal = getValue("Client Basic"); 
+            const extraVal = getValue("Total Client Extras"); 
+            const totalVal = getValue("Total Client Payment");
+            let titleParts = ["Client Totals"];
+            if (!isZero(basicVal)) { titleParts.push(`<span class="header-part-label">Basic:</span> ${basicVal}`); }
+            if (!isZero(extraVal)) { titleParts.push(`<span class="header-part-label">Extras:</span> ${extraVal}`); }
+            if (!isZero(totalVal)) { titleParts.push(`<span class="header-part-red">Total: ${totalVal}</span>`); } 
+            if (titleParts.length > 1) { groupTitle = titleParts.join(' / '); }
+            
+          } else if (bookingType === "1. Single Journey") { // SJ LOGIC
+            const priceVal = getValue("Client SJ Price");
+            const waitVal = getValue("Client SJ Wait Total");
+            const totalVal = getValue("SJ Client Total");
+            let titleParts = ["Client Totals"];
+            if (!isZero(priceVal)) { titleParts.push(`<span class="header-part-label">Price:</span> ${priceVal}`); }
+            if (!isZero(waitVal)) { titleParts.push(`<span class="header-part-label">Wait:</span> ${waitVal}`); }
+            if (!isZero(totalVal)) { titleParts.push(`<span class="header-part-red">Total: ${totalVal}</span>`); } 
+            if (titleParts.length > 1) { groupTitle = titleParts.join(' / '); }
+          }
+        }
+        
+        if (groupTitle === "Driver Totals") {
+          let titleParts = ["Driver Totals"];
+          const basicVal = getValue("Driver Basic");
+          const totalVal = getValue("Driver Total Payment"); 
+          
+          if (bookingType === "2. Film - Day Rate" || bookingType === "3. Non-Film Day Rate") {
+            const bonusVal = getValue("Driver Bonus"); 
+            if (!isZero(basicVal)) { titleParts.push(`<span class="header-part-label">Basic:</span> ${basicVal}`); }
+            if (!isZero(bonusVal)) { titleParts.push(`<span class="header-part-label">Bonus:</span> ${bonusVal}`); }
+          } else if (bookingType === "1. Single Journey") {
+            const extrasVal = getValue("Driver Expenses / Extra Payments");
+            const otVal = getValue("DRV O/T Payment");
+            if (!isZero(basicVal)) { titleParts.push(`<span class="header-part-label">Basic:</span> ${basicVal}`); }
+            if (!isZero(extrasVal)) { titleParts.push(`<span class="header-part-label">Extras:</span> ${extrasVal}`); }
+            if (!isZero(otVal)) { titleParts.push(`<span class="header-part-label">O/T:</span> ${otVal}`); }
+          }
+          
+          if (!isZero(totalVal)) { titleParts.push(`<span class="header-part-green">Total: ${totalVal}</span>`); }
+          if (titleParts.length > 1) { groupTitle = titleParts.join(' / '); }
+        }
+        
+        if (groupTitle === "Kit Details") { // KIT HIRE HEADER LOGIC
+            const kitTotalVal = getValue("Kit Total");
+            if (!isZero(kitTotalVal)) { 
+                groupTitle += ` - Total: <span class="header-part-red">${kitTotalVal}</span>`; 
+            } else {
+                groupTitle += ` - <span class="header-status-red">MISSING TOTAL</span>`; 
+            }
+        }
+        
+        if (groupTitle === "Per Diems Details") { // <-- NWD PER DIEMS HEADER LOGIC
+            const perDiemsTotal = getValue("Total Per Diems Payment");
+            if (!isZero(perDiemsTotal)) {
+                groupTitle += ` - Total: <span class="header-part-green">${perDiemsTotal}</span>`;
+            } else {
+                groupTitle += ` - <span class="header-status-red">Total Missing</span>`;
+            }
+        }
+
+
+        // --- End Conditional Logic ---
+
+        if (groupTitle === "Overtime") { groupTitle = formatPaymentHeader("Overtime", "Standard O/T", "Standard O/T Rate", "Total Standard O/T Payment"); }
+        if (groupTitle === "Night Hours") { groupTitle = formatPaymentHeader("Night Hours", "Standard Night Hours", "Night Rate", "Total Night Payment"); }
+        if (groupTitle === "Enhanced O/T") { groupTitle = formatPaymentHeader("Enhanced O/T", "Enhanced Hours", "Enhanced Rate", "Total Enhanced O/T Payment"); }
+        if (groupTitle === "Early Call") { groupTitle = formatPaymentHeader("Early Call", "Early Call Hours", "Early Call Rate", "Total Early Call Payment"); }
+        if (groupTitle === "BTA Payments") { groupTitle = formatPaymentHeader("BTA Payments", "BTA Hours", "BTA Rate", "Total BTA Payment"); }
+        if (groupTitle === "Per Diems") {
+            const perDiemVal = getValue("Total Per Diems Payment"); const allowanceVal = getValue("Total Allowances Payment");
+            const perDiemIsZero = isZero(perDiemVal); const allowanceIsZero = isZero(allowanceVal);
+            if (perDiemIsZero && allowanceIsZero) { groupTitle = "Per Diems & Other Allowances - None"; }
+            else if (perDiemIsZero) { groupTitle = `Other Allowances - ${allowanceVal}`; }
+            else if (allowanceIsZero) { groupTitle = `Per Diems - ${perDiemsVal}`; }
+            else { groupTitle = `Per Diems - ${perDiemsVal} / Other Allowances - ${allowanceVal}`; }
+        }
+        
+        if (!skipGroup) {
+          htmlString += `<details ${openAttr}><summary>${groupTitle}</summary><div class="group-content">`;
+          group.fields.forEach(fieldConfig => {
+            htmlString += createFieldHTML(fieldConfig.header, fieldConfig.type, headers, rowData, POPUP_DROPDOWNS, fieldConfig.placeholder);
+          });
+          htmlString += `</div></details>`;
+        }
+      });
+  } else {
+    // FALLBACK for "other" booking types
+    htmlString += `<div class="group-content">`;
+    POPUP_DISPLAY_COLUMNS.forEach(header => {
+        const fieldType = POPUP_DROPDOWNS.hasOwnProperty(header) ? 'dropdown' : 'editable';
+        htmlString += createFieldHTML(header, fieldType, headers, rowData, POPUP_DROPDOWNS);
+    });
+    htmlString += `</div>`;
+  }
+
+  // --- 5. Build Footer and JavaScript ---
+  htmlString += `
+    </div>
+    
+    <div class="footer-section" ${isDataMissing ? 'style="display:none;"' : ''}>
+      <div class="notes-area">
+        <label class="label">Approval Notes</label>
+        <textarea id="notes">${existingNotes}</textarea>
+      </div>
+      <div class="btn-group">
+        <button class="main-btn btn-approve" onclick="submit('Approved')">APPROVE</button>
+        <button class="main-btn btn-reject" onclick="submit('Rejected')">REJECT</button>
+      </div>
+    </div>
+
+    <script>
+      const doNotSaveList = ${calcColsJson};
+
+      function getFormData() {
+        const inputs = document.querySelectorAll('input[data-header], select[data-header]');
+        const updates = {};
+        
+        // Headers that require special date/time handling
+        const dateTimeHeaders = ["Client Start Time", "Client Finish Time", "Driver Start time", "Driver Finish time", "Booking Time", "POB Time", "Kit Delivery Date", "Kit Collection Date", "Per Diems Date"];
+        let processedHeaders = [];
+        
+        dateTimeHeaders.forEach(header => {
+          const dateInput = document.querySelector('input[data-header="' + header + '_date"]');
+          const timeInput = document.querySelector('input[data-header="' + header + '_time"]');
+          
+          if (dateInput) { // Only process if the date input exists
+             if (dateInput.value) {
+               const dateParts = dateInput.value.split('-');
+               const formattedDate = dateParts[2] + '/' + dateParts[1] + '/' + dateParts[0];
+               
+               if (timeInput && timeInput.value) {
+                 // Date and Time provided (e.g., Client/Driver shifts)
+                 updates[header] = formattedDate + ' ' + timeInput.value + ':00';
+               } else {
+                 // Date only provided (e.g., Kit Dates, Per Diems Date)
+                 updates[header] = formattedDate;
+               }
+             } else {
+               updates[header] = ""; 
+             }
+             processedHeaders.push(header); 
+          }
+        });
+
+        inputs.forEach(input => {
+            const header = input.getAttribute('data-header');
+            if (processedHeaders.some(h => header.startsWith(h))) return; 
+            const type = input.type;
+            if (!doNotSaveList.includes(header)) {
+              if (type === 'checkbox') {
+                if (header.trim() === "Transport Captain") {
+                  updates[header] = input.checked ? "Transport Captain" : "";
+                } else {
+                  updates[header] = input.checked ? "TRUE" : "FALSE";
+                }
+              } else {
+                if (!input.readOnly) {
+                  updates[header] = input.value;
+                }
+              }
+            }
+        });
+        return updates;
+      }
+
+      function triggerRecalc() {
+        const notes = document.getElementById('notes').value;
+        const updates = getFormData();
+        const btn = document.querySelector('.btn-recalc');
+        btn.innerText = '...'; btn.disabled = true;
+        document.body.style.opacity = "0.6"; 
+        google.script.run.handleRecalculate(${row}, notes, updates);
+      }
+
+      function submit(status) {
+        const notes = document.getElementById('notes').value;
+        const updates = getFormData();
+        const btns = document.querySelectorAll('button');
+        btns.forEach(b => { b.disabled = true; b.innerText = 'Saving...'; });
+        google.script.run
+          .withSuccessHandler(closeDialog)
+          .processPopupResponse(${row}, status, notes, updates);
+      }
+      function closeDialog() { google.script.host.close(); }
+    </script>
+  `;
+
+  // --- 6. Show the Final Popup ---
+  const popupTitle = `Approval Review - ${bookingType || 'Unknown Type'}`;
+  const html = HtmlService.createHtmlOutput(htmlString).setWidth(480).setHeight(750); 
+  ui.showModalDialog(html, popupTitle);
+}
+
+
+/**
+ * A helper function that builds the HTML for a single field (text, static, dropdown, checkbox).
+ */
+function createFieldHTML(header, type, headers, rowData, dropdowns, placeholder = "") {
+  // "Smart Find" ignores trailing spaces in headers.
+  const colIndex = headers.findIndex(h => h.trim() === header.trim());
+  
+  if (colIndex === -1) {
+    return ""; // Hide field if header not found
+  }
+
+  let val = rowData[colIndex];
+  let safeVal = val ? val.toString().replace(/"/g, '&quot;') : "";
+  
+  let html = `<div class="field-group">`;
+  
+  if (type === "checkbox") {
+    let isChecked = "";
+    if (header === "Transport Captain") {
+       isChecked = (safeVal === "Transport Captain") ? "checked" : "";
+    } else {
+       isChecked = (safeVal ==="TRUE" || safeVal === "true")?"checked" : "";
+    }
+
+    html += `
+      <label class="checkbox-group">
+        <input type="checkbox" data-header="${headers[colIndex]}" ${isChecked}>
+        <span class="label" style="display:inline; margin:0;">${header}</span>
+      </label>`;
+  } else {
+    html += `<label class="label">${header}</label>`;
+    
+    if (type === "static") {
+      if (header === "Delay Status") {
+         if (!safeVal || isZero(safeVal)) { 
+           html += `<input type="text" value="On-Time" class="static" readonly style="color: #28a745; font-weight: bold;">`;
+         } else {
+           html += `<input type="text" value="${safeVal}" class="static" readonly style="color: #dc3545; font-weight: bold;">`;
+         }
+      } else {
+         html += `<input type="text" data-header="${headers[colIndex]}" value="${safeVal}" class="static" readonly>`;
+      }
+    
+    } else if (type === "dropdown") {
+        let isReportCategory = header.trim() === "Booking Type";
+        let dropdownOptions = dropdowns.hasOwnProperty(header) ? dropdowns[header] : [];
+        
+        html += `<select data-header="${headers[colIndex]}">`;
+
+       // Updated logic:
+if (isReportCategory) {
+    // Select "ALL" by default if the current value is blank or "ALL"
+    const isAllSelected = (safeVal === "ALL" || safeVal === "") ? 'selected' : '';
+    html += `<option value="ALL" ${isAllSelected}>All Categories</option>`;
+}
+        
+        dropdownOptions.forEach(opt => {
+          const isSelected = (val === opt) ? 'selected' : '';
+          html += `<option value="${opt}" ${isSelected}>${opt}</option>`;
+        });
+        
+        if (val !== "" && !dropdownOptions.includes(val) && val !== "ALL") {
+           html += `<option value="${safeVal}" selected>${safeVal} (Current)</option>`;
+        }
+        html += `</select>`;
+
+    } else if (type === "date-range-options") {
+        // --- Date Range Presets Dropdown ---
+        const presetOptions = [
+            { label: "Yesterday", value: "YESTERDAY" },
+            { label: "This Week (Mon-Sun)", value: "THIS_WEEK" },
+            { label: "Last Week (Mon-Sun)", value: "LAST_WEEK" },
+            { label: "This Month", value: "THIS_MONTH" },
+            { label: "Last Month", value: "LAST_MONTH" },
+            { label: "All Time", value: "ALL_TIME" }
+        ];
+
+        html += `<select data-header="${headers[colIndex]}" onchange="applyDatePreset(this.value)">`;
+        html += `<option value="" selected disabled>Select Preset...</option>`;
+        
+        presetOptions.forEach(opt => {
+            html += `<option value="${opt.value}">${opt.label}</option>`;
+        });
+        html += `</select>`;
+        
+    } else if (type === "datetime") {
+      // --- DATETIME LOGIC (Standard: Date + Time) ---
+      let dateVal = "";
+      let timeVal = "";
+      let dateClass = "";
+      let timeClass = "";
+      
+      if (val) {
+        try {
+          const parts = val.split(' ');
+          // Parse "12/11/2025"
+          const dateParts = parts[0].split('/');
+          if (dateParts.length === 3) {
+            // Format as YYYY-MM-DD for the <input type="date">
+            dateVal = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+          }
+          
+          // Parse "13:00:00" and format as HH:MM (Time is optional in source)
+          if (parts.length >= 2) {
+              const timeParts = parts[1].split(':');
+              if (timeParts.length >= 2) {
+                timeVal = `${timeParts[0]}:${timeParts[1]}`;
+              }
+          }
+        } catch (e) { /* leave blank */ }
+      }
+      
+      // If no value, add the red border class
+      if (!dateVal) dateClass = `class="input-required"`;
+      if (!timeVal) timeClass = `class="input-required"`;
+
+      html += `
+        <div class="datetime-container">
+          <input type="date" data-header="${headers[colIndex]}_date" value="${dateVal}" ${dateClass}>
+          <input type="time" data-header="${headers[colIndex]}_time" value="${timeVal}" ${timeClass}>
+        </div>`;
+
+    } else if (type === "date-only") {
+       // --- DATE-ONLY LOGIC (Per Diems Date, Start Date, End Date) ---
+      let dateVal = "";
+      let dateClass = "";
+
+      if (val) {
+        try {
+          const parts = val.split(' '); // Split by space to ignore any time component
+          const dateParts = parts[0].split('/');
+          if (dateParts.length === 3) {
+            dateVal = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+          }
+        } catch (e) { /* leave blank */ }
+      }
+      
+      // Only apply required class if it's the Per Diems Date. Start/End are optional for reporting.
+      if (header.includes("Per Diems Date") && !dateVal) {
+          dateClass = `class="input-required"`;
+      }
+      
+      // Use standard class if no special class applied
+      if (!dateClass) dateClass = `class=""`;
+
+      html += `
+        <div class="datetime-container">
+          <input type="date" data-header="${headers[colIndex]}_date" value="${dateVal}" ${dateClass} style="width: 100%;">
+          <!-- Hidden time input ensures compatibility with getFormData, but is unused -->
+          <input type="hidden" data-header="${headers[colIndex]}_time" value="">
+        </div>`;
+
+
+    } else {
+      // --- STANDARD EDITABLE TEXT ---
+      const redFields = ["UD Contracted Hours Override", "Override Basic Rate"];
+      const redClass = redFields.includes(header) ? ' class="input-red"' : '';
+      
+      html += `<input type="text" data-header="${headers[colIndex]}" value="${safeVal}" ${redClass}>`;
+    }
+  }
+  
+  html += `</div>`;
+  return html;
+}
+
+
+/**************************************************************************************************
+ *
+ * SCRIPT 5: POPUP HANDLERS (SERVER-SIDE)
+ * These functions are called by the popup's JavaScript.
+ *
+ **************************************************************************************************/
+
+/**
+ * Runs from the "Recalculate" button in the popup.
+ * Saves data, forces sheet to recalculate formulas, then re-opens the popup.
+ */
+function handleRecalculate(row, notes, updates) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(DESTINATION_TAB_NAME);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+  
+  // 1. Save Notes and Edits (Excluding Calculated Columns)
+  if (updates) {
+    for (const headerName in updates) {
+      if (!CALCULATED_COLUMNS.includes(headerName.trim()) && headerName !== APPROVAL_NOTES_HEADER) { 
+        const newValue = updates[headerName];
+        const colIndex = headers.findIndex(h => h.trim() === headerName.trim()) + 1;
+        if (colIndex > 0) {
+          sheet.getRange(row, colIndex).setValue(newValue);
+        }
+      }
+    }
+  }
+
+  // 2. Save Notes (must be saved after iterating updates to avoid conflicts)
+  const notesCol = headers.findIndex(h => h.trim() === APPROVAL_NOTES_HEADER.trim()) + 1;
+  if (notesCol > 0) {
+    sheet.getRange(row, notesCol).setValue(notes);
+  }
+  
+  // 3. GET BOOKING TYPE AND RUN CUSTOM LOGIC
+  const bookingTypeCol = headers.findIndex(h => h.trim() === "Booking Type") + 1;
+  const bookingType = sheet.getRange(row, bookingTypeCol).getValue();
+
+  if (bookingType === "1. Single Journey") {
+    applySingleJourneyLogic(sheet, row, headers);
+  } else if (bookingType === "3. Non-Film Day Rate") {
+    applyNonFilmDayRateLogic(sheet, row, headers);
+  } else if (bookingType === "2. Film - Day Rate") {
+    applyFilmDayRateLogic(sheet, row, headers); 
+  } else if (bookingType === "5. Non-Work Day Per Diems") {
+     // Currently, no custom logic is needed other than refreshing the sheet.
+     Logger.log("NWD Per Diems: No custom server-side calculation needed.");
+  }
+  
+  // 4. Force the sheet to update and all array formulas to recalculate
+  SpreadsheetApp.flush(); 
+  
+  // 5. Re-open the dialog with the fresh, recalculated data
+  showApprovalDialog(sheet, row);
+}
+
+
+/**
+ * Runs from the "Approve/Reject" buttons. Saves all final data back to the sheet.
+ */
+function processPopupResponse(row, status, notes, updates) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(DESTINATION_TAB_NAME);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+  
+  try {
+    // 1. Save Status
+    const statusCol = headers.findIndex(h => h.trim() === STATUS_COLUMN_HEADER.trim()) + 1;
+    if (statusCol > 0) {
+      sheet.getRange(row, statusCol).setValue(status);
+    }
+    
+    // 2. Save Notes
+    const notesCol = headers.findIndex(h => h.trim() === APPROVAL_NOTES_HEADER.trim()) + 1;
+    if (notesCol > 0 && notes) {
+      sheet.getRange(row, notesCol).setValue(notes);
+    }
+
+    // 3. Save all other edits
+    if (updates) {
+      for (const headerName in updates) {
+        // Check the config list again just to be safe
+        if (!CALCULATED_COLUMNS.includes(headerName.trim())) { 
+          const newValue = updates[headerName];
+          // Find by trimmed header name
+          const colIndex = headers.findIndex(h => h.trim() === headerName.trim()) + 1;
+          if (colIndex > 0) {
+            sheet.getRange(row, colIndex).setValue(newValue);
+          }
+        }
+      }
+    }
+
+    // 4. Force sheet to save and formulas to update
+    SpreadsheetApp.flush();
+
+    // 5. Call the archive engine
+    _archiveSingleRow(row);
+
+  } catch (e) {
+    Logger.log(`Error in processPopupResponse: ${e.message}`);
+    SpreadsheetApp.getUi().alert(`An error occurred while saving or archiving: ${e.message}`);
+  }
+}
+
+
+/**************************************************************************************************
+ *
+ * SCRIPT 6: INTERNAL ARCHIVING ENGINE
+ * This is the new "engine" that handles moving a single row.
+ *
+ **************************************************************************************************/
+function _archiveSingleRow(rowNumber) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const destSheet = ss.getSheetByName(DESTINATION_TAB_NAME);
+  let archiveSheet = ss.getSheetByName(ARCHIVE_TAB_NAME); 
+
+  // Read headers as text
+  const destHeaders = destSheet.getRange(1, 1, 1, destSheet.getLastColumn()).getDisplayValues()[0];
+  
+  if (!archiveSheet) {
+    archiveSheet = ss.insertSheet(ARCHIVE_TAB_NAME);
+    archiveSheet.getRange(1, 1, 1, destHeaders.length).setValues([destHeaders]); 
+  }
+  const archiveHeaders = archiveSheet.getRange(1, 1, 1, archiveSheet.getLastColumn()).getDisplayValues()[0];
+
+  // Get the data *for only the row we are moving*
+  const sourceRowData = destSheet.getRange(rowNumber, 1, 1, destHeaders.length).getDisplayValues()[0];
+  
+  // Build the "smart map" to match columns by name
+  const headerMap = {};
+  archiveHeaders.forEach((header, archiveIndex) => {
+    if (header === "" || header === undefined) return;
+    const destIndex = destHeaders.indexOf(header);
+    if (destIndex !== -1) {
+      headerMap[archiveIndex] = destIndex;
+    }
+  });
+  
+  if (Object.keys(headerMap).length === 0) {
+    throw new Error("Could not map headers. Data was not deleted.");
+  }
+  
+  // Re-build the single row in the correct order for the archive sheet
+  const finalArchiveRow = new Array(archiveHeaders.length).fill(''); 
+  for (const archiveIndex in headerMap) {
+    const sourceIndex = headerMap[archiveIndex];
+    finalArchiveRow[archiveIndex] = sourceRowData[sourceIndex];
+  }
+  
+  // --- Verification and Paste ---
+  const lastRowBefore = archiveSheet.getLastRow();
+  archiveSheet.getRange(lastRowBefore + 1, 1, 1, finalArchiveRow.length).setValues([finalArchiveRow]);
+  SpreadsheetApp.flush(); 
+  
+  const lastRowAfter = archiveSheet.getLastRow();
+  if (lastRowAfter !== (lastRowBefore + 1)) {
+    throw new Error("Data paste verification failed. Row was not deleted.");
+  }
+
+  // ONLY if paste is verified, delete the row.
+  destSheet.deleteRow(rowNumber);
+}
+
+
+/**************************************************************************************************
+ *
+ * SCRIPT 7: ADMIN & HELPER FUNCTIONS
+ * These are utilities that other functions depend on.
+ *
+ **************************************************************************************************/
+
+
+/**
+ * Reads the results of the diagnostic formulas in the ProcessedIDs tab
+ * and displays a consolidated alert message when the sheet is opened.
+ */
+function runDataIntegrityCheck() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ui = SpreadsheetApp.getUi();
+  const destSheet = ss.getSheetByName(DESTINATION_TAB_NAME);
+  const archiveSheet = ss.getSheetByName(ARCHIVE_TAB_NAME);
+  
+  if (!destSheet || !archiveSheet) {
+    ui.alert("System Warning", `Cannot run Integrity Check: Missing sheet(s) (${DESTINATION_TAB_NAME} or ${ARCHIVE_TAB_NAME}).`, ui.ButtonSet.OK);
+    return;
+  }
+  
+  try {
+    const keyHeader = KEY_COLUMN_HEADER;
+    
+    // 1. Fetch all IDs from both active and archived data
+    const destHeaders = destSheet.getRange(1, 1, 1, destSheet.getLastColumn()).getDisplayValues()[0];
+    const archiveHeaders = archiveSheet.getRange(1, 1, 1, archiveSheet.getLastColumn()).getDisplayValues()[0];
+    
+    const destKeyIndex = destHeaders.indexOf(keyHeader);
+    const archiveKeyIndex = archiveHeaders.indexOf(keyHeader);
+
+    if (destKeyIndex === -1 || archiveKeyIndex === -1) {
+        throw new Error(`Key header "${keyHeader}" is missing from one or both sheets.`);
+    }
+    
+    // Read relevant columns (A-Z should cover most keys)
+    const destLastRow = destSheet.getLastRow();
+    const archiveLastRow = archiveSheet.getLastRow();
+    
+    let importData = [];
+    if (destLastRow > 1) {
+        importData = destSheet.getRange(2, 1, destLastRow - 1, destSheet.getLastColumn()).getValues();
+    }
+    let archiveData = [];
+    if (archiveLastRow > 1) {
+        archiveData = archiveSheet.getRange(2, 1, archiveLastRow - 1, archiveSheet.getLastColumn()).getValues();
+    }
+    
+    // Extract ALL IDs (including duplicates, which are needed for the duplication check)
+    let allIds = [];
+    
+    // Extract keys from ImportedData
+    importData.forEach(row => {
+        const id = row[destKeyIndex];
+        if (id && id.toString().trim() !== "") {
+            allIds.push(id.toString().trim());
+        }
+    });
+
+    // Extract keys from ProcessedForms
+    archiveData.forEach(row => {
+        const id = row[archiveKeyIndex];
+        if (id && id.toString().trim() !== "") {
+            allIds.push(id.toString().trim());
+        }
+    });
+    
+    // --- SEQUENCE CHECK LOGIC (Must run on UNIQUE IDs for accurate gap count) ---
+    const uniqueIdsSet = new Set(allIds);
+    const uniqueIds = Array.from(uniqueIdsSet);
+    
+    let sequenceResult = "";
+    const validNumbers = uniqueIds
+        .filter(id => id.length > 5 && id.toUpperCase().startsWith('B25F')) // Filter keys matching expected pattern
+        .map(id => parseInt(id.slice(-5), 10)) // Extract last 5 digits and convert to number
+        .filter(n => !isNaN(n)) // Filter out any non-numeric results
+        .sort((a, b) => a - b); // Sort numerically
+
+    if (validNumbers.length === 0) {
+      sequenceResult = "No IDs to check";
+    } else {
+      const minNum = validNumbers[0];
+      const maxNum = validNumbers[validNumbers.length - 1];
+      const actualUniqueCount = validNumbers.length;
+      const expectedCount = (maxNum - minNum + 1);
+      const gapCount = expectedCount - actualUniqueCount;
+      
+      if (gapCount === 0) {
+        sequenceResult = "✅ SEQUENCE OK";
+      } else {
+        sequenceResult = `⚠️ ${gapCount} GAPS DETECTED`;
+      }
+    }
+    
+    // --- DUPLICATION CHECK LOGIC (Must run on ALL IDs) ---
+    let duplicateSummary = "";
+    const idCounts = {};
+    const importIdSet = new Set(importData.map(row => row[destKeyIndex] && row[destKeyIndex].toString().trim()).filter(Boolean));
+    const archiveIdSet = new Set(archiveData.map(row => row[archiveKeyIndex] && row[archiveKeyIndex].toString().trim()).filter(Boolean));
+
+    allIds.forEach(id => {
+      idCounts[id] = (idCounts[id] || 0) + 1;
+    });
+
+    const duplicateIds = Object.keys(idCounts).filter(id => idCounts[id] > 1);
+    
+    if (duplicateIds.length === 0) {
+      duplicateSummary = "✅ NO DUPLICATES FOUND";
+    } else {
+      duplicateSummary = `⚠️ ${duplicateIds.length} DUPLICATE(S) FOUND`;
+      
+      // Detailed message structure (similar to your formula output)
+      const detailMessages = duplicateIds.map(id => {
+          let parts = [];
+          const inImported = importIdSet.has(id) ? 'ImportedData' : null;
+          const inProcessed = archiveIdSet.has(id) ? 'ProcessedForms' : null;
+
+          if (inImported) parts.push('2 in ImportedData');
+          if (inProcessed) parts.push('2 in ProcessedForms');
+          
+          return `${id}: ${parts.join(' | ')}`;
+      });
+      // The summary needs to be concise for the main alert
+      if (duplicateIds.length === 1) {
+          duplicateSummary += ` (${detailMessages[0]})`;
+      } else {
+          duplicateSummary += ` (See logs for detail)`;
+      }
+      
+      Logger.log("DUPLICATE DETAILS:\n" + detailMessages.join('\n'));
+    }
+    
+    // 4. Build Final Message
+    let message = "--- Data Integrity Status ---\n\n";
+    let isProblem = !sequenceResult.includes("✅") || !duplicateSummary.includes("✅");
+    
+    message += `Sequence Check: ${sequenceResult}\n`;
+    message += `Duplication Check: ${duplicateSummary}\n`;
+
+    message += "\n------------------------------\n";
+
+    if (isProblem) {
+      ui.alert("🚨 ACTION REQUIRED: Data Integrity Issues Found 🚨", message + "Please review the relevant sheets immediately.", ui.ButtonSet.OK);
+    } else {
+      ui.alert("✅ System Check OK", message + "All core ID checks passed.", ui.ButtonSet.OK);
+    }
+    
+  } catch (e) {
+    Logger.log(`Error running Data Integrity Check: ${e.message}`);
+    ui.alert("System Error", `Could not run Data Integrity Check: ${e.message}. Please check logs.`, ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * Helper to safely parse a UK DD/MM/YYYY HH:MM:SS string into a Date object.
+ * This prevents locale issues when dealing with "MM/DD/YYYY" vs "DD/MM/YYYY".
+ */
+function parseUKDateTime(dateTimeString) {
+  if (!dateTimeString || typeof dateTimeString !== 'string') return null;
+
+  // Regex matches DD/MM/YYYY HH:MM:SS (or just HH:MM)
+  const match = dateTimeString.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s(\d{1,2}):(\d{1,2}):?(\d{0,2})$/);
+  
+  if (match) {
+    // Note the order: new Date(year, monthIndex, day, hours, minutes, seconds)
+    // Month is 1-indexed in the string, but 0-indexed in the Date constructor.
+    const year = parseInt(match[3], 10);
+    const month = parseInt(match[2], 10) - 1; // Subtract 1 for 0-index
+    const day = parseInt(match[1], 10);
+    const hours = parseInt(match[4], 10);
+    const minutes = parseInt(match[5], 10);
+    const seconds = match[6] ? parseInt(match[6], 10) : 0;
+    
+    const date = new Date(year, month, day, hours, minutes, seconds);
+    
+    // Basic validation check to ensure the date components were correctly parsed
+    if (!isNaN(date.getTime()) && date.getFullYear() === year && date.getMonth() === month) {
+      return date;
+    }
+  }
+  return null;
+}
+
+/**
+ * Processes calculations specific to the "1. Single Journey" booking type.
+ * Note: This relies on the core Google Sheet formulas for final totals, 
+ * but calculates the critical Single Journey Wait time here.
+ */
+function applySingleJourneyLogic(sheet, row, headers) {
+  const getKey = (header) => headers.findIndex(h => h.trim() === header.trim()) + 1;
+  const getValue = (header) => sheet.getRange(row, getKey(header)).getValue();
+
+  const bookingTime = parseUKDateTime(getValue("Booking Time"));
+  const pobTime = parseUKDateTime(getValue("POB Time"));
+  
+  if (!bookingTime || !pobTime) {
+    Logger.log("Single Journey: Booking or POB Time missing. Skipping wait calculation.");
+    return;
+  }
+
+  // Calculate wait time: POB Time - Booking Time
+  const waitMillis = pobTime.getTime() - bookingTime.getTime();
+  let waitHours = 0;
+
+  if (waitMillis > 0) {
+    waitHours = waitMillis / (1000 * 60 * 60); // Convert to hours
+    // Round down to the nearest quarter hour (0.25)
+    waitHours = Math.floor(waitHours * 4) / 4; 
+  }
+  
+  // Write the calculated Single Journey Wait Hours back to the sheet
+  const waitCol = getKey("Single Journey Wait");
+  if (waitCol > 0) {
+    sheet.getRange(row, waitCol).setValue(waitHours);
+    sheet.getRange(row, waitCol).setNumberFormat("0.00");
+  }
+  
+  Logger.log(`Single Journey: Wait calculated as ${waitHours} hours.`);
+}
+
+
+/**
+ * Processes calculations specific to the "3. Non-Film Day Rate" booking type.
+ * Calculates Client Hours and basic Overtime based on the contracted hours.
+ */
+function applyNonFilmDayRateLogic(sheet, row, headers) {
+  const getKey = (header) => headers.findIndex(h => h.trim() === header.trim()) + 1;
+  const getValue = (header) => sheet.getRange(row, getKey(header)).getValue();
+
+  const clientStart = parseUKDateTime(getValue("Client Start Time"));
+  const clientFinish = parseUKDateTime(getValue("Client Finish Time"));
+  const contractedHoursOverride = parseFloat(getValue("UD Contracted Hours Override")) || 0;
+
+  if (!clientStart || !clientFinish || contractedHoursOverride <= 0) {
+    Logger.log("NFD: Start/Finish time or Contracted Hours Override missing. Skipping calculation.");
+    return;
+  }
+  
+  // 1. Calculate Gross Client Hours
+  const totalMillis = clientFinish.getTime() - clientStart.getTime();
+  const totalClientHours = totalMillis / (1000 * 60 * 60);
+
+  // 2. Calculate Client Overtime Hours
+  let overtimeHours = 0;
+  if (totalClientHours > contractedHoursOverride) {
+    overtimeHours = totalClientHours - contractedHoursOverride;
+  }
+  
+  // 3. Write results back to sheet
+  const clientHoursCol = getKey("Client Hours");
+  if (clientHoursCol > 0) {
+    sheet.getRange(row, clientHoursCol).setValue(totalClientHours);
+    sheet.getRange(row, clientHoursCol).setNumberFormat("0.00");
+  }
+  
+  // Note: Standard O/T is where the Client O/T formula lives.
+  // We write the calculated OVERTIME hours for the sheet formulas to pick up.
+  const standardOTCol = getKey("Standard O/T");
+  if (standardOTCol > 0) {
+    sheet.getRange(row, standardOTCol).setValue(overtimeHours);
+    sheet.getRange(row, standardOTCol).setNumberFormat("0.00");
+  }
+  
+  Logger.log(`NFD: Total Hours: ${totalClientHours.toFixed(2)}, O/T Hours: ${overtimeHours.toFixed(2)}`);
+}
+
+/**
+ * Processes calculations specific to the "2. Film - Day Rate" booking type.
+ * Ensures BTA and 6th/7th Day status is applied to the current row.
+ * NOTE: This relies on the main calculation functions for history checks.
+ */
+function applyFilmDayRateLogic(sheet, row, headers) {
+  // Relying on sheet formulas and manual full calculation calls from the menu.
+  Logger.log(`FUD: Relying on sheet formulas and recalculation logic for final payments.`);
+}
+
+
+/**
+ * Reads the 'DataValidation' sheet (Headers in Row 2, Data in Row 3+)
+ * and dynamically retrieves Booking Types from the active data sheet
+ * to build the dropdown options for all popups.
+ */
+function getDynamicDropdowns() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const dropdowns = {};
+  
+  // --- 1. Get Dropdowns from DataValidation Sheet ---
+  const sheet = ss.getSheetByName(DROPDOWN_DATA_TAB_NAME);
+  if (sheet) {
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+    
+    // CHECK 1: Ensure there is at least one data row (Row 3)
+    if (lastRow >= 3 && lastCol >= 1) { 
+      // Headers are in Row 2, Data starts in Row 3
+      const headers = sheet.getRange(2, 1, 1, lastCol).getValues()[0];
+      const values = sheet.getRange(3, 1, lastRow - 2, lastCol).getValues(); // lastRow - 2 is numRows
+      
+      headers.forEach((header, colIndex) => {
+        if (header) {
+          // Get all values for this column, filter out blanks
+          const options = values.map(row => row[colIndex]).filter(cell => cell !== "");
+          if (options.length > 0) {
+            // Ensure header is a string and not blank before adding to dropdowns object
+            if (String(header).trim() !== "") {
+                dropdowns[header.trim()] = options; 
+            }
+          }
+        }
+      });
+    }
+  }
+
+  // NOTE: Assuming you deleted the dynamic loading of "Booking Type" here.
+
+  return dropdowns; // dropdowns is now guaranteed to be an empty object {} if no data is found.
+}
+
+/**
+ * Finds the last row with actual data, ignoring empty rows
+ * that just have formatting or data validation.
+ */
+function getRealLastRow(sheet) {
+  const data = sheet.getDataRange().getValues();
+  let lastRow = data.length;
+  for (let i = data.length - 1; i >= 0; i--) {
+    // If any cell in the row is not blank, it's the last row
+    if (data[i].join('') !== '') {
+      lastRow = i + 1;
+      break;
+    }
+  }
+  return lastRow;
+}
+
+/**
+ * ADMIN TOOL: Runs from menu. Wipes and rebuilds the 'ProcessedForms'
+ * sheet to perfectly match the 'ImportedData' layout, then repopulates data.
+ */
+function syncArchiveStructure() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const destSheet = ss.getSheetByName(DESTINATION_TAB_NAME); // Source of Truth
+  let archiveSheet = ss.getSheetByName(ARCHIVE_TAB_NAME);   // Sheet to be fixed
+
+  if (!destSheet) {
+    SpreadsheetApp.getUi().alert(`Cannot find 'ImportedData' sheet.`);
+    return;
+  }
+  if (!archiveSheet) {
+    archiveSheet = ss.insertSheet(ARCHIVE_TAB_NAME);
+  }
+
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.alert(
+    'Confirm: Full Archive Resync',
+    'This will ERASE the "ProcessedForms" sheet and rebuild it to match "ImportedData" (preserving all data). This will fix column order but is a big operation.\n\nAre you sure you want to continue?',
+    ui.ButtonSet.YES_NO);
+
+  if (response !== ui.Button.YES) {
+    return;
+  }
+  
+  ss.toast('Starting full archive resync...', 'Sync Tool', 60);
+
+  try {
+    // === 1. SAVE OLD DATA ===
+    Logger.log('Saving old archive data...');
+    const oldLastRow = getRealLastRow(archiveSheet);
+    const oldLastCol = archiveSheet.getLastColumn();
+    let oldArchiveHeaders = [];
+    let oldArchiveData = [];
+
+    if (oldLastRow >= 1) {
+      oldArchiveHeaders = archiveSheet.getRange(1, 1, 1, oldLastCol).getDisplayValues()[0];
+    }
+    if (oldLastRow > 1) {
+      // NOTE: Using getValues() here is intentional to capture the raw data, not display text.
+      oldArchiveData = archiveSheet.getRange(2, 1, oldLastRow - 1, oldLastCol).getValues();
+    }
+    
+    // === 2. WIPE THE SHEET ===
+    Logger.log('Wiping archive sheet...');
+    archiveSheet.clear(); 
+
+    // === 3. COPY HEADER *NAMES* (NO FORMULAS) ===
+    Logger.log('Copying new headers (Display Values only)...');
+    const destLastCol = destSheet.getLastColumn();
+    const newArchiveHeaders = destSheet.getRange(1, 1, 1, destLastCol).getDisplayValues()[0];
+    
+    archiveSheet.getRange(1, 1, 1, newArchiveHeaders.length)
+                 .setValues([newArchiveHeaders])
+                 .setFontWeight('bold');
+
+    // === 4. COPY STRUCTURE & DATA FORMATS ===
+    Logger.log('Syncing column widths and data formats...');
+    const arMaxRows = archiveSheet.getMaxRows();
+    
+    for (let i = 0; i < newArchiveHeaders.length; i++) {
+      const colIndex = i + 1;
+      try {
+        archiveSheet.setColumnWidth(colIndex, destSheet.getColumnWidth(colIndex));
+        
+        const sourceSampleCell = destSheet.getRange(2, colIndex);
+        const archiveColumn = archiveSheet.getRange(2, colIndex, arMaxRows - 1, 1);
+
+        archiveColumn.setNumberFormat(sourceSampleCell.getNumberFormat());
+        archiveColumn.setHorizontalAlignment(sourceSampleCell.getHorizontalAlignment());
+        archiveColumn.setVerticalAlignment(sourceSampleCell.getVerticalAlignment());
+        archiveColumn.setFontWeight(sourceSampleCell.getFontWeight());
+        archiveColumn.setFontStyle(sourceSampleCell.getFontStyle());
+        archiveColumn.setFontColor(sourceSampleCell.getFontColor());
+        archiveColumn.setWrapStrategy(sourceSampleCell.getWrapStrategy());
+        
+        // === COPY DATA VALIDATION RULE ===
+        const sourceDataValidation = sourceSampleCell.getDataValidation();
+        if (sourceDataValidation) {
+          archiveColumn.setDataValidation(sourceDataValidation);
+        }
+
+      } catch (e) {
+        Logger.log(`Could not sync format for col ${colIndex}: ${e.message}`);
+      }
+    }
+
+    // === 5. RESTORE ALTERNATING COLORS ===
+    Logger.log('Restoring alternating colors...');
+    try {
+      const dataRange = archiveSheet.getRange(2, 1, arMaxRows - 1, newArchiveHeaders.length);
+      dataRange.removeRowBanding(); 
+      dataRange.applyRowBanding(SpreadsheetApp.BandingTheme.LIGHT_GREY, false, false);
+    } catch (e) {
+      Logger.log(`Could not apply alternating colors: ${e.message}`);
+    }
+
+    // === 6. RE-MAP AND RESTORE DATA ===
+    Logger.log('Re-mapping and restoring old data...');
+    if (oldArchiveData.length > 0) {
+      const reMap = {}; // Map: newIndex -> oldIndex
+      const oldHeaderMap = {};
+      oldArchiveHeaders.forEach((h, i) => oldHeaderMap[h] = i);
+      
+      newArchiveHeaders.forEach((newHeader, newIndex) => {
+        if (oldHeaderMap.hasOwnProperty(newHeader)) {
+          reMap[newIndex] = oldHeaderMap[newHeader];
+        }
+      });
+      
+      const finalData = [];
+      oldArchiveData.forEach(oldRow => {
+        const newRow = new Array(newArchiveHeaders.length).fill('');
+        for (const newIndex in reMap) {
+          const oldIndex = reMap[newIndex];
+          newRow[newIndex] = oldRow[oldIndex];
+        }
+        finalData.push(newRow);
+      });
+      
+      if (finalData.length > 0) {
+        archiveSheet.getRange(2, 1, finalData.length, finalData[0].length)
+                     .setValues(finalData);
+      }
+    }
+
+    ss.toast('Archive structure sync is complete!', 'Sync Tool', 10);
+
+  } catch (e) {
+    Logger.log(`Error in syncArchiveStructure: ${e}`);
+    SpreadsheetApp.getUi().alert(`An error occurred: ${e.message}`);
+  }
+}
+
+
+/**
+ * Helper to intelligently extract a city name from a UK address string.
+ */
+function getCity(address) {
+  if (!address) return "";
+
+  // Regex to match a UK postcode
+  const postcodeRegex = /[A-Z]{1,2}[0-9R][0-9A-Z]? [0-9][A-Z]{2}$/i;
+  
+  // Clean the string
+  let cleanedAddress = address
+    .replace(", UK", "") // Remove country
+    .replace(", United Kingdom", "")
+    .replace(postcodeRegex, ""); // Remove postcode
+
+  // Split by comma and get the last non-empty part
+  const parts = cleanedAddress.split(',');
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const part = parts[i].trim();
+    if (part) {
+      // One last check: if this part is just a postcode that was poorly formatted
+      // (e.g. "LondonNW5 3QG"), split it by space.
+      const spaceParts = part.split(' ');
+      if (spaceParts.length > 1) {
+        // Check if the last part is a postcode chunk
+        if (/[0-9][A-Z]{2}$/i.test(spaceParts[spaceParts.length - 1])) {
+          // If so, return the parts *before* it
+          return spaceParts.slice(0, -1).join(' ');
+        }
+      }
+      return part; // Return the last valid part
+    }
+  }
+  
+  return ""; // Fallback
+}
+
+/**
+ * SCRIPT 8: SCRIPT SPELL-CHECK (HEADER DIAGNOSTIC TOOL)
+ * This function checks all hard-coded headers in the script's constants 
+ * against a master list to find typos or missing headers.
+ */
+function checkScriptSpelling() {
+  const ui = SpreadsheetApp.getUi();
+
+  // 1. The "Source of Truth" - your master list of ALL possible headers.
+  const masterList = [
+    "Submission Date", "Delay Status", "Review", "Approval Status", "Approval Notes", 
+    "DBF Reference", "Hire No.", "Full Name", "Payment Agreement", "Booking Type", 
+    "Client", "Non-Film Day Rate Options", "Film Unit Day Options", "Vehicle Registration", 
+    "Start Mileage", "Finish Mileage", "Calculated Mileage", "Transport Captain", 
+    "Unit Base Address", "Client Start Time", "Client Finish Time", "Client Hours", 
+    "Contracted Hours", "Day Type", "UD Contracted Hours Override", 
+    "Pre-Agreed Travel / Other O/T", "Time Taken off the Day", "6th Day", "7th Day", 
+    "Basic Rate", "Override Basic Rate", "Hourly Rate", "Total O/T Hours", "Standard O/T", 
+    "Standard O/T Rate", "Fixed O/T", "Total Standard O/T Payment", "Night Hours After", 
+    "Total Night Hours", "Standard Night Hours", "Night Rate", "Fixed Night CAP", 
+    "Total Night Payment", "Enhanced Hours", "Enhanced Rate", "Total Enhanced O/T Payment", 
+    "Early Call Before", "Early Call Hours", "Early Call Rate", "Total Early Call Payment", 
+    "BTA Hours", "BTA Rate", "Total BTA Payment", "Client Basic", "Override Client Basic", 
+    "Total Client Extras", "Override Client Extras", "Total Client Payment", "Lunch", 
+    "Breakfast", "Overnight", "Other Per Diems", "Per Diem Comments", 
+    "Total Per Diems Payment", "Total Allowances Payment", 
+    "Single Journey Options", "Booking Time", "POB Time", "Single Journey Wait", 
+    "Customer Name", "Pickup Address", "Drop-off Address", "Client SJ O/T Rate", 
+    "Driver SJ O/T Rate", "Client SJ Price", "Driver SJ Price", "Client Extras", 
+    "Driver Extras", "SJ Additional Wait", "Driver SJ Wait Total", 
+    "Client SJ Wait Total", "SJ Client Total", "Tolls Paid", "Other Tolls", 
+    "Extras to Charge", "EXP Numbers", "Other Expenses Total", "Fuel Type", 
+    "Fuel / Electric", "Fuel Rate", "Fuel Total", "Driver Start time", 
+    "Driver Finish time", "Driver Hours", "Driver Hour Comments", "Driver O/T Hours", 
+    "Driver Expenses / Extra Payments", "Driver Per Diems", "DRV O/T Payment", 
+    "Overwrite Basic", "Overwrite Bonus", "Driver Bonus", "Driver Basic", 
+    "Driver Total Payment", "Kit Total", "Kit Comments",
+    "Kit Hire / Delivery Options", "Kit Delivery Date", "Kit Collection Date",
+    "Per Diems Date", "NFD Basic Rate", "NFD Overtime Total ", "NFD Total Client Charges",
+    "NFD Client O/T Rate", "NFD O/T Rate Override", "Fuel Total", "Other Expenses Total",
+    // Report Filters Headers (these are not real columns, but are used in config)
+    "Booking Type", "Date Range Preset", "Start Date", "End Date", "Car Wash Payment", "Phone Payment", "Laptop Payment"
+  ];
+  const masterSet = new Set(masterList.map(h => h.trim()));
+
+  // 2. Get all headers currently used in the script constants
+  let scriptHeaders = [
+    KEY_COLUMN_HEADER, STATUS_COLUMN_HEADER, APPROVAL_NOTES_HEADER, REVIEW_TRIGGER_COL_HEADER,
+    ...CALCULATED_COLUMNS, ...POPUP_DISPLAY_COLUMNS, ...VIEW_APPROVE_FUDS_COLUMNS
+  ];
+  
+  [FILM_DAY_RATE_CONFIG, SINGLE_JOURNEY_CONFIG, NON_FILM_DAY_RATE_CONFIG, KIT_HIRE_CONFIG, NON_WORK_DAY_PER_DIEMS_CONFIG, REPORT_FILTER_CONFIG].forEach(config => {
+    config.forEach(group => {
+      group.fields.forEach(field => {
+        scriptHeaders.push(field.header);
+      });
+    });
+  });
+  
+  // Get only unique, non-empty, trimmed headers
+  const scriptHeaderSet = new Set(scriptHeaders.map(h => h ? h.trim() : '').filter(Boolean));
+
+  // 3. Run Checks
+  const typosInScript = [];
+  scriptHeaderSet.forEach(header => {
+    if (!masterSet.has(header)) {
+      typosInScript.push(header);
+    }
+  });
+
+  const unusedOnList = [];
+  masterSet.forEach(header => {
+    if (!scriptHeaderSet.has(header)) {
+      unusedOnList.push(header);
+    }
+  });
+
+  // 4. Build and show the report
+  let report = "";
+  
+  if (typosInScript.length === 0) {
+    report += "✅ SCRIPT SPELLING IS OK!\n" +
+              "All headers used in the script constants were found in your master list.\n";
+  } else {
+    report += `⚠️ ${typosInScript.length} SCRIPT TYPOS FOUND!\n` +
+              `The following headers are used in the SCRIPT but NOT on your master list. ` +
+              `Please verify these for spelling mistakes:\n\n` +
+              `[ ${typosInScript.join(" ]\n[ ")} ]\n`;
+  }
+  
+  if (unusedOnList.length > 0) {
+    report += `\n-------------------\n` +
+              `👀 ${unusedOnList.length} UNUSED HEADERS:\n\n` +
+              `The following headers are on your master list but are NOT used in the script's popup/view configs.\n\n` +
+              `[ ${unusedOnList.join(" ]\n[ ")} ]`;
+  }
+
+  ui.alert("Script Header Diagnostic", report, ui.ButtonSet.OK);
+}
+
+/**
+ * The main function that builds and displays the dynamic HTML popup window 
+ * for the Report Filter.
+ */
+function showReportFilterDialog() {
+  const ui = SpreadsheetApp.getUi();
+  const POPUP_DROPDOWNS = getDynamicDropdowns() || {}; // Use OR {} for safety
+  
+  // Define headers and mock rowData for the generic report filter layout.
+  // NOTE: "Date Range Preset" is renamed to "Date Range" here to match your request.
+  const headers = ["Client", "Booking Type", "Date Range", "Start Date", "End Date"];
+  const rowData = ["", "", "", "", ""];
+  
+  // --- BUILD HTML STRING ---
+  let htmlString = `
+    <style>
+      body { font-family: sans-serif; padding: 0; background-color: #f9f9f9; margin: 0; }
+      h3 { margin: 0; color: #333; font-size: 16px; padding: 15px; border-bottom: 2px solid #ddd; background-color: #e9ecef; }
+      #form-container { padding: 15px; }
+      input[type="date"], select { 
+          width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; 
+          font-size: 13px; box-sizing: border-box; background-color: white; 
+          margin-bottom: 15px;
+      }
+      .field-group { margin-bottom: 12px; }
+      .label { display: block; font-weight: bold; color: #555; font-size: 12px; margin-bottom: 4px; }
+      .btn-group { margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px; }
+      button { padding: 10px 20px; border: none; color: white; font-size: 14px; font-weight: bold; cursor: pointer; border-radius: 4px; }
+      .btn-submit { background-color: #007bff; }
+      .btn-close { background-color: #6c757d; }
+    </style>
+    
+    <h3>Generate Report Filter</h3>
+    <div id="form-container">
+  `;
+
+  // Use the REPORT_FILTER_CONFIG constant to render the fields
+  REPORT_FILTER_CONFIG.forEach(group => {
+    htmlString += `<div class="group-content">`;
+    group.fields.forEach(fieldConfig => {
+      // NOTE: createFieldHTML needs the new header name for rendering the label
+      htmlString += createFieldHTML(
+        fieldConfig.header, 
+        fieldConfig.type, 
+        headers, // This is the mock header list
+        rowData, 
+        POPUP_DROPDOWNS, 
+        fieldConfig.placeholder
+      );
+    });
+    htmlString += `</div>`;
+  });
+  
+  // --- FOOTER AND JAVASCRIPT ---
+  htmlString += `
+    <div class="btn-group">
+      <button class="btn-submit" onclick="submitReportFilters()">RUN REPORT</button>
+      <button class="btn-close" onclick="google.script.host.close()">CLOSE</button>
+    </div>
+    </div> 
+    
+    <script>
+      // Helper function to format date for input value (YYYY-MM-DD)
+      function formatDate(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return \`\${year}-\${month}-\${day}\`;
+      }
+      
+      function applyDatePreset(preset) {
+        const today = new Date();
+        // NOTE: Selectors updated to use the new header name "Date Range"
+        const startDateInput = document.querySelector('input[data-header="Start Date_date"]');
+        const endDateInput = document.querySelector('input[data-header="End Date_date"]');
+        
+        let start = new Date(today);
+        let end = new Date(today);
+
+        // Reset inputs first
+        startDateInput.value = '';
+        endDateInput.value = '';
+
+        if (preset === "YESTERDAY") {
+            start.setDate(today.getDate() - 1);
+            end.setDate(today.getDate() - 1);
+        } else if (preset === "THIS_WEEK") {
+            // Monday (1) to Sunday (0) logic. JavaScript uses 0=Sun, 1=Mon... 6=Sat.
+            const dayOfWeek = today.getDay(); 
+            const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; 
+            
+            start.setDate(today.getDate() - daysToMonday);
+            
+            // End date is Sunday (6 days after Monday start)
+            end.setDate(start.getDate() + 6); 
+            
+            // If the calculated Sunday is in the future, set end date to today.
+            if (end.getTime() > today.getTime()) {
+                end = today; 
+            }
+        } else if (preset === "LAST_WEEK") {
+            // Calculate days back to LAST Monday
+            const dayOfWeek = today.getDay();
+            const daysToLastMonday = dayOfWeek === 0 ? 13 : dayOfWeek + 6; 
+            start.setDate(today.getDate() - daysToLastMonday);
+            end.setDate(start.getDate() + 6);
+        } else if (preset === "THIS_MONTH") {
+            start.setDate(1);
+            end = today;
+        } else if (preset === "LAST_MONTH") {
+            start.setMonth(today.getMonth() - 1, 1);
+            end.setDate(0); // Sets date to the last day of the prior month
+        } else if (preset === "ALL_TIME") {
+            // Leave dates blank
+            return;
+        } else {
+             return;
+        }
+
+        startDateInput.value = formatDate(start);
+        endDateInput.value = formatDate(end);
+      }
+      
+      function submitReportFilters() {
+        // Collects filter data (used to confirm submission, then closes)
+        const client = document.querySelector('select[data-header="Client"]').value;
+        const category = document.querySelector('select[data-header="Booking Type"]').value;
+        const startDate = document.querySelector('input[data-header="Start Date_date"]').value;
+        const endDate = document.querySelector('input[data-header="End Date_date"]').value;
+
+        alert("Filters captured:\\nClient: " + client + "\\nCategory: " + category + "\\nStart Date: " + startDate + "\\nEnd Date: " + endDate + "\\n\\nClosing pop-up (No server action taken).");
+        google.script.host.close();
+      }
+
+      // --- NEW WINDOW.ONLOAD BLOCK (Defaults Selections) ---
+      window.onload = function() {
+        // 1. Set the "Booking Type" select to 'ALL' (Default selection)
+        // NOTE: This is partially handled by HTML generation, but this ensures the JS model is aligned.
+        const bookingTypeSelect = document.querySelector('select[data-header="Booking Type"]');
+        if (bookingTypeSelect) {
+            bookingTypeSelect.value = "ALL";
+        }
+
+        // 2. Select "LAST_WEEK" in the Date Range dropdown
+        const presetSelect = document.querySelector('select[data-header="Date Range"]'); 
+        if (presetSelect) {
+            presetSelect.value = "LAST_WEEK";
+            
+            // 3. Immediately trigger the calculation for "LAST_WEEK"
+            applyDatePreset("LAST_WEEK");
+        }
+      };
+      // --- END WINDOW.ONLOAD BLOCK ---
+      
+    </script>
+  `;
+
+  const popupTitle = "Data Reporting Filter";
+  const html = HtmlService.createHtmlOutput(htmlString).setWidth(400).setHeight(550); 
+  ui.showModalDialog(html, popupTitle);
+}
