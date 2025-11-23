@@ -1,0 +1,52 @@
+function duplicateTimesheetWithPageBreaks() {
+  // --- CONFIGURATION ---
+  const SHEET_NAME = "TimeSheets";
+  const NUM_COPIES = 10;
+  const START_ROW = 1;
+  const START_COLUMN = 1; // Column A
+  const END_COLUMN = 5;   // Column E (Adjust if your timesheet spans more columns)
+  
+  // Timesheet height is 45 rows (Row 1 to Row 45)
+  const ROWS_PER_SHEET = 45; 
+  const REQUIRED_ROWS = NUM_COPIES * ROWS_PER_SHEET;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SHEET_NAME);
+
+  if (!sheet) {
+    SpreadsheetApp.getUi().alert(`Error: Sheet named "${SHEET_NAME}" not found. Please ensure the tab is named exactly "TimeSheets".`);
+    return;
+  }
+
+  // Check if the sheet has enough rows and add them if necessary (prevents range error).
+  if (sheet.getMaxRows() < REQUIRED_ROWS) {
+    const rowsToAdd = REQUIRED_ROWS - sheet.getMaxRows();
+    sheet.insertRowsAfter(sheet.getMaxRows(), rowsToAdd);
+    Logger.log(`Added ${rowsToAdd} rows to the sheet.`);
+  }
+
+  // Define the source range (the original timesheet format)
+  const sourceRange = sheet.getRange(START_ROW, START_COLUMN, ROWS_PER_SHEET, END_COLUMN);
+
+  // Loop from the 2nd copy up to the 10th copy
+  for (let i = 2; i <= NUM_COPIES; i++) {
+    // Calculate the destination row for the current copy
+    const destRow = ((i - 1) * ROWS_PER_SHEET) + 1;
+
+    // 1. Copy the formatting and data to the new location
+    sourceRange.copyTo(
+      sheet.getRange(destRow, START_COLUMN), 
+      SpreadsheetApp.CopyPasteType.PASTE_NORMAL, 
+      false // do NOT skip blanks
+    );
+  }
+  
+  SpreadsheetApp.getUi().alert(
+    `SUCCESS! 10 timesheet copies have been created in "TimeSheets".\n\n` +
+    `FINAL STEP (Manual Page Breaks):\n` +
+    `1. Go to File > Print (Ctrl+P).\n` +
+    `2. In the right panel, select "Set custom page breaks".\n` +
+    `3. Set breaks before Rows 46, 91, 136, 181, 226, 271, 316, 361, and 406.`
+  );
+}
+
