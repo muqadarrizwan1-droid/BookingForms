@@ -1,0 +1,61 @@
+
+function createSeparateTimesheetSpreadsheet() {
+  // --- CONFIGURATION ---
+  const SOURCE_SHEET_NAME = "TimeSheets";
+  const NUM_COPIES = 10;
+  // Note: Rows/Columns are no longer needed for the copy operation, 
+  // but we keep the row check for data integrity.
+  const ROWS_PER_SHEET = 45; // Timesheet height is 45 rows (Row 1 to Row 45)
+  // ---------------------
+
+  const ui = SpreadsheetApp.getUi();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sourceSheet = ss.getSheetByName(SOURCE_SHEET_NAME);
+
+  if (!sourceSheet) {
+    ui.alert(`Error: Source sheet named "${SOURCE_SHEET_NAME}" not found. Please ensure the tab is named exactly "TimeSheets".`);
+    return;
+  }
+  
+  // --- Step 1: Create the new destination spreadsheet ---
+  const newSpreadsheetName = `10x Timesheets - ${new Date().toLocaleDateString()}`;
+  const newSs = SpreadsheetApp.create(newSpreadsheetName);
+  const newSsUrl = newSs.getUrl();
+  
+  // Get the default Sheet1 created when the new spreadsheet is made.
+  const defaultSheet = newSs.getSheets()[0];
+
+  // --- Step 2: Loop to copy and rename 10 tabs ---
+  for (let i = 1; i <= NUM_COPIES; i++) {
+    const tabName = `Timesheet ${i}`;
+
+    // CORE FIX: Use the copyTo method on the Sheet object itself.
+    // This clones the entire sheet (data, formatting, widths) into the new spreadsheet.
+    const newSheet = sourceSheet.copyTo(newSs); 
+    
+    // Rename the new sheet
+    newSheet.setName(tabName);
+  }
+
+  // --- Step 3: Clean up and Alert ---
+  
+  // Delete the initial default sheet that was empty (Sheet1)
+  if (defaultSheet) {
+    newSs.deleteSheet(defaultSheet);
+  }
+
+
+  // --- Step 4: Alert the user with the link to the new file ---
+  ui.alert(
+    `SUCCESS! The new timesheet file has been created.\n\n` +
+    `File Name: "${newSpreadsheetName}"\n` +
+    `It contains ${NUM_COPIES} tabs, ready for printing.\n\n` +
+    `Please click OK to open the new file.`
+  );
+  
+  // Open the new spreadsheet URL
+  const html = HtmlService.createHtmlOutput(`<script>window.open('${newSsUrl}', '_blank'); google.script.host.close();</script>`)
+    .setWidth(1)
+    .setHeight(1);
+  ui.showModalDialog(html, 'Opening new file...');
+}
