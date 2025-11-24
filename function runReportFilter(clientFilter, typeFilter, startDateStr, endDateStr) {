@@ -1,0 +1,221 @@
+
+/**
+ * Filters the ProcessedForms data based on user criteria and writes the 
+ * results to the dedicated report tabs.
+ * * * FINAL KEY CHANGE: All report tabs are now sorted in DESCENDING order
+ * (newest date first) based on their primary date column.
+ */
+function runReportFilter(clientFilter, typeFilter, startDateStr, endDateStr) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sourceSheet = ss.getSheetByName(REPORT_SOURCE_TAB);
+   
+  if (!sourceSheet || sourceSheet.getLastRow() < 2) {
+    SpreadsheetApp.getUi().alert(`Report complete! Total rows written: 0. Source sheet "${REPORT_SOURCE_TAB}" is empty or not found.`);
+    return;
+  }
+
+  // --- 1. SETUP AND EFFICIENT DATA READ (Single I/O) ---
+  const dataRange = sourceSheet.getRange(1, 1, sourceSheet.getLastRow(), sourceSheet.getLastColumn());
+  const allValues = dataRange.getValues();
+   
+  const sourceHeaders = allValues[0].map(h => String(h));
+  const allData = allValues.slice(1);
+
+  const clientColIndex = sourceHeaders.indexOf('Client');
+  const typeColIndex = sourceHeaders.indexOf('Booking Type');
+  const statusColIndex = sourceHeaders.indexOf('Approval Status'); 
+
+  if (clientColIndex === -1 || typeColIndex === -1 || statusColIndex === -1) {
+    throw new Error('Report required columns (Client, Booking Type, or Approval Status) missing from ProcessedForms.');
+  }
+
+  // Find all required date headers and their indices for the SOURCE sheet
+  const requiredDateHeaders = Array.from(new Set(Object.values(BOOKING_TYPE_DATE_MAP)));
+  const dateColIndices = {};
+   
+  requiredDateHeaders.forEach(header => {
+      const index = sourceHeaders.indexOf(header);
+      if (index === -1) {
+          Logger.log(`Warning: Required date column "${header}" is missing from ${REPORT_SOURCE_TAB}.`);
+      }
+      dateColIndices[header] = index;
+  });
+   
+  // Helper to parse date input from HTML (YYYY-MM-DD)
+  const parseDate = (dateString) => {
+      if (!dateString) return null;
+      const parts = dateString.split('-');
+      if (parts.length === 3) {
+          return new Date(parts[0], parts[1] - 1, parts[2]);
+      }
+      return null;
+  };
+
+  const filterStartDate = parseDate(startDateStr);
+  const filterEndDate = parseDate(endDateStr);
+   
+  const dataByTab = Object.keys(REPORT_TAB_MAP).reduce((acc, key) => {
+    acc[REPORT_TAB_MAP[key]] = [];
+    return acc;
+  }, {});
+   
+  const getRowDate = (row, type) => {
+      const dateHeader = BOOKING_TYPE_DATE_MAP[type];
+      if (dateHeader) {
+          const index = dateColIndices[dateHeader];
+          if (index !== -1) {
+              const dateValue = row[index];
+              return (dateValue instanceof Date && !isNaN(dateValue.getTime())) ? dateValue : null;
+          }
+      }
+      return null;
+  };
+   
+  const normalizedStatuses = allData.map(row => 
+      String(row[statusColIndex]).trim().toUpperCase()
+  );
+
+
+  // --- 2. FILTERING LOGIC (CPU-bound loop) ---
+  const CLIENT_ALL = 'ALL';
+  allData.forEach((row, index) => {
+    const client = row[clientColIndex];
+    const type = row[typeColIndex];
+     
+    if (!REPORT_TAB_MAP.hasOwnProperty(type)) return;
+
+    let matches = true;
+     
+    // 1. APPROVAL STATUS FILTER (Only APPROVED rows)
+    if (normalizedStatuses[index] !== 'APPROVED') { 
+      matches = false;
+    }
+     
+    // 2. Client Filter 
+    const isClientAll = (clientFilter === CLIENT_ALL || clientFilter === '');
+    if (matches && !isClientAll) {
+      if (client !== clientFilter) {
+        matches = false;
+      }
+    }
+     
+    // 3. Booking Type Filter 
+    const isTypeAll = (typeFilter === CLIENT_ALL || typeFilter === '');
+    if (matches && !isTypeAll && type !== typeFilter) {
+      matches = false;
+    }
+
+    // 4. Date Filter (Only runs if a filter is active)
+    if (matches && (filterStartDate || filterEndDate)) {
+        const date = getRowDate(row, type); 
+
+        if (!date) {
+            matches = false;
+        } else {
+            const rowDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+            
+            if (filterStartDate && rowDate.getTime() < filterStartDate.getTime()) {
+                matches = false;
+            }
+            // Add one day to the filterEndDate to include all entries for that day
+            const endOfDayFilter = filterEndDate ? new Date(filterEndDate.getFullYear(), filterEndDate.getMonth(), filterEndDate.getDate() + 1) : null;
+
+            if (endOfDayFilter && rowDate.getTime() >= endOfDayFilter.getTime()) {
+                matches = false;
+            }
+        }
+    }
+     
+    // 5. Group Data for Output
+    if (matches) {
+      dataByTab[REPORT_TAB_MAP[type]].push(row);
+    }
+  });
+
+  // --- 3. WRITING AND SORTING RESULTS (Optimized I/O) ---
+  let totalRowsWritten = 0;
+   
+  for (const tabName in dataByTab) {
+    let filteredData = dataByTab[tabName];
+    const destSheet = ss.getSheetByName(tabName);
+     
+    if (!destSheet) {
+      Logger.log(`Skipping tab ${tabName}: Report sheet does not exist. Please create it first.`);
+      continue; 
+    }
+     
+    // Read headers from Row 2
+    const destHeaders = destSheet.getRange(2, 1, 1, destSheet.getLastColumn()).getDisplayValues()[0];
+    
+    // Find the index of the 'Select' column in the destination sheet headers
+    const selectColIndex = destHeaders.indexOf('Select');
+    if (selectColIndex === -1) {
+        Logger.log(`Warning: 'Select' column missing from tab ${tabName}. Skipping default checkmark.`);
+    }
+
+    // Build a map: Destination Index -> Source Index
+    const headerMap = {};
+    destHeaders.forEach((destHeader, destIndex) => {
+      const sourceIndex = sourceHeaders.indexOf(destHeader);
+      if (sourceIndex !== -1) {
+        headerMap[destIndex] = sourceIndex;
+      }
+    });
+
+    if (Object.keys(headerMap).length === 0) {
+      Logger.log(`Skipping tab ${tabName}: Could not map any headers from source to destination.`);
+      continue;
+    }
+
+    // --- OPTIMIZATION: EFFICIENT CLEAR ---
+    const lastRow = destSheet.getLastRow();
+    // Clear content starting from Row 3
+    if (lastRow >= 3) {
+        destSheet.getRange(3, 1, lastRow - 2, destSheet.getLastColumn()).clearContent();
+    }
+
+    if (filteredData.length > 0) {
+      
+      // 4. Build Final Output Array (Selective Copy)
+      const finalOutput = filteredData.map(sourceRow => {
+          const newRow = new Array(destHeaders.length).fill('');
+          for (const destIndex in headerMap) {
+              const sourceIndex = headerMap[destIndex];
+              newRow[destIndex] = sourceRow[sourceIndex];
+          }
+          
+          // Set the 'Select' column value to TRUE (Ticked)
+          if (selectColIndex !== -1) {
+             newRow[selectColIndex] = true;
+          }
+          
+          return newRow;
+      });
+
+      // 5. Write Data (Efficient batch write)
+      // Write data starting from Row 3
+      destSheet.getRange(3, 1, finalOutput.length, finalOutput[0].length).setValues(finalOutput);
+      totalRowsWritten += finalOutput.length;
+      
+      // 6. Execute Native Sort (Fast I/O-based sort)
+      const type = finalOutput[0][typeColIndex];
+      const dateHeader = BOOKING_TYPE_DATE_MAP[type];
+      const dateColIndexInDest = destHeaders.indexOf(dateHeader);
+      
+      if (dateColIndexInDest !== -1) {
+          Logger.log(`Native Sorting tab ${tabName} by ${dateHeader} (Descending).`);
+          // Sort range starts at Row 3
+          const rangeToSort = destSheet.getRange(3, 1, finalOutput.length, destHeaders.length);
+          
+          // *** FINAL CHANGE: Set 'ascending' to FALSE for DESCENDING sort (Newest First) ***
+          rangeToSort.sort({ column: dateColIndexInDest + 1, ascending: false });
+      } else {
+           Logger.log(`Warning: Could not find sort column ${dateHeader} in ${tabName}. Skipping sort.`);
+      }
+    }
+  }
+
+  // Final Alert
+  SpreadsheetApp.getUi().alert(`Report complete! Total rows written: ${totalRowsWritten}.`);
+  ss.toast('Report successfully updated.', 'Report Generator', 5);
+}
