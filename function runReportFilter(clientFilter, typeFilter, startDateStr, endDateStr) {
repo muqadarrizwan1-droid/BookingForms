@@ -1,9 +1,8 @@
-
 /**
- * Filters the ProcessedForms data based on user criteria and writes the 
- * results to the dedicated report tabs.
- * * * FINAL KEY CHANGE: All report tabs are now sorted in DESCENDING order
- * (newest date first) based on their primary date column.
+ * Filters the ProcessedForms data and writes to report tabs.
+ * * * CONFIGURATION: Data starts at Row 11.
+ * * * SORTING: Sorts based on specific Time/Date columns per tab.
+ * * * MATCHING: Fuzzy matching for headers (ignores spaces).
  */
 function runReportFilter(clientFilter, typeFilter, startDateStr, endDateStr) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -14,7 +13,21 @@ function runReportFilter(clientFilter, typeFilter, startDateStr, endDateStr) {
     return;
   }
 
-  // --- 1. SETUP AND EFFICIENT DATA READ (Single I/O) ---
+  // --- CONFIGURATION ---
+  const DATA_START_ROW = 11; // Data now starts writing/sorting here
+  const HEADER_ROW = 2;      // Headers are located here
+
+  // --- NEW: SORTING CONFIGURATION ---
+  // Maps "Booking Type" -> "Column Name to Sort By"
+  const SORT_COLUMN_MAP = {
+    'Film':           'Client Start Time',
+    'Single Journey': 'Booking Time',
+    'Non-Film':       'Client Start Time',
+    'Per Diems':      'Per Diems Date',
+    'Kit Hire':       'Kit Delivery Date'
+  };
+
+  // --- 1. SETUP AND DATA READ ---
   const dataRange = sourceSheet.getRange(1, 1, sourceSheet.getLastRow(), sourceSheet.getLastColumn());
   const allValues = dataRange.getValues();
    
@@ -29,25 +42,19 @@ function runReportFilter(clientFilter, typeFilter, startDateStr, endDateStr) {
     throw new Error('Report required columns (Client, Booking Type, or Approval Status) missing from ProcessedForms.');
   }
 
-  // Find all required date headers and their indices for the SOURCE sheet
+  // Date Headers for FILTERING (keeping this logic for the date filter inputs)
   const requiredDateHeaders = Array.from(new Set(Object.values(BOOKING_TYPE_DATE_MAP)));
   const dateColIndices = {};
    
   requiredDateHeaders.forEach(header => {
       const index = sourceHeaders.indexOf(header);
-      if (index === -1) {
-          Logger.log(`Warning: Required date column "${header}" is missing from ${REPORT_SOURCE_TAB}.`);
-      }
       dateColIndices[header] = index;
   });
    
-  // Helper to parse date input from HTML (YYYY-MM-DD)
   const parseDate = (dateString) => {
       if (!dateString) return null;
       const parts = dateString.split('-');
-      if (parts.length === 3) {
-          return new Date(parts[0], parts[1] - 1, parts[2]);
-      }
+      if (parts.length === 3) return new Date(parts[0], parts[1] - 1, parts[2]);
       return null;
   };
 
@@ -61,22 +68,16 @@ function runReportFilter(clientFilter, typeFilter, startDateStr, endDateStr) {
    
   const getRowDate = (row, type) => {
       const dateHeader = BOOKING_TYPE_DATE_MAP[type];
-      if (dateHeader) {
-          const index = dateColIndices[dateHeader];
-          if (index !== -1) {
-              const dateValue = row[index];
-              return (dateValue instanceof Date && !isNaN(dateValue.getTime())) ? dateValue : null;
-          }
+      if (dateHeader && dateColIndices[dateHeader] !== -1) {
+          const dateValue = row[dateColIndices[dateHeader]];
+          return (dateValue instanceof Date && !isNaN(dateValue.getTime())) ? dateValue : null;
       }
       return null;
   };
    
-  const normalizedStatuses = allData.map(row => 
-      String(row[statusColIndex]).trim().toUpperCase()
-  );
+  const normalizedStatuses = allData.map(row => String(row[statusColIndex]).trim().toUpperCase());
 
-
-  // --- 2. FILTERING LOGIC (CPU-bound loop) ---
+  // --- 2. FILTERING LOGIC ---
   const CLIENT_ALL = 'ALL';
   allData.forEach((row, index) => {
     const client = row[clientColIndex];
@@ -86,53 +87,30 @@ function runReportFilter(clientFilter, typeFilter, startDateStr, endDateStr) {
 
     let matches = true;
      
-    // 1. APPROVAL STATUS FILTER (Only APPROVED rows)
-    if (normalizedStatuses[index] !== 'APPROVED') { 
-      matches = false;
-    }
+    if (normalizedStatuses[index] !== 'APPROVED') matches = false;
      
-    // 2. Client Filter 
     const isClientAll = (clientFilter === CLIENT_ALL || clientFilter === '');
-    if (matches && !isClientAll) {
-      if (client !== clientFilter) {
-        matches = false;
-      }
-    }
+    if (matches && !isClientAll && client !== clientFilter) matches = false;
      
-    // 3. Booking Type Filter 
     const isTypeAll = (typeFilter === CLIENT_ALL || typeFilter === '');
-    if (matches && !isTypeAll && type !== typeFilter) {
-      matches = false;
-    }
+    if (matches && !isTypeAll && type !== typeFilter) matches = false;
 
-    // 4. Date Filter (Only runs if a filter is active)
     if (matches && (filterStartDate || filterEndDate)) {
         const date = getRowDate(row, type); 
-
         if (!date) {
             matches = false;
         } else {
             const rowDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-            
-            if (filterStartDate && rowDate.getTime() < filterStartDate.getTime()) {
-                matches = false;
-            }
-            // Add one day to the filterEndDate to include all entries for that day
+            if (filterStartDate && rowDate.getTime() < filterStartDate.getTime()) matches = false;
             const endOfDayFilter = filterEndDate ? new Date(filterEndDate.getFullYear(), filterEndDate.getMonth(), filterEndDate.getDate() + 1) : null;
-
-            if (endOfDayFilter && rowDate.getTime() >= endOfDayFilter.getTime()) {
-                matches = false;
-            }
+            if (endOfDayFilter && rowDate.getTime() >= endOfDayFilter.getTime()) matches = false;
         }
     }
      
-    // 5. Group Data for Output
-    if (matches) {
-      dataByTab[REPORT_TAB_MAP[type]].push(row);
-    }
+    if (matches) dataByTab[REPORT_TAB_MAP[type]].push(row);
   });
 
-  // --- 3. WRITING AND SORTING RESULTS (Optimized I/O) ---
+  // --- 3. WRITING AND SORTING ---
   let totalRowsWritten = 0;
    
   for (const tabName in dataByTab) {
@@ -140,82 +118,77 @@ function runReportFilter(clientFilter, typeFilter, startDateStr, endDateStr) {
     const destSheet = ss.getSheetByName(tabName);
      
     if (!destSheet) {
-      Logger.log(`Skipping tab ${tabName}: Report sheet does not exist. Please create it first.`);
+      Logger.log(`Skipping tab ${tabName}: Sheet not found.`);
       continue; 
     }
      
     // Read headers from Row 2
-    const destHeaders = destSheet.getRange(2, 1, 1, destSheet.getLastColumn()).getDisplayValues()[0];
+    const destHeaders = destSheet.getRange(HEADER_ROW, 1, 1, destSheet.getLastColumn()).getDisplayValues()[0];
     
-    // Find the index of the 'Select' column in the destination sheet headers
-    const selectColIndex = destHeaders.indexOf('Select');
-    if (selectColIndex === -1) {
-        Logger.log(`Warning: 'Select' column missing from tab ${tabName}. Skipping default checkmark.`);
-    }
+    // Fuzzy search for 'Select' column
+    const selectColIndex = destHeaders.findIndex(h => String(h).trim().toUpperCase() === 'SELECT');
 
-    // Build a map: Destination Index -> Source Index
+    // Fuzzy Header Mapping
+    const normalizedSourceHeaders = sourceHeaders.map(h => String(h).trim().toUpperCase());
     const headerMap = {};
+    
     destHeaders.forEach((destHeader, destIndex) => {
-      const sourceIndex = sourceHeaders.indexOf(destHeader);
-      if (sourceIndex !== -1) {
-        headerMap[destIndex] = sourceIndex;
-      }
+      const cleanDestHeader = String(destHeader).trim().toUpperCase();
+      if (cleanDestHeader === '') return;
+      const sourceIndex = normalizedSourceHeaders.indexOf(cleanDestHeader);
+      if (sourceIndex !== -1) headerMap[destIndex] = sourceIndex;
     });
 
-    if (Object.keys(headerMap).length === 0) {
-      Logger.log(`Skipping tab ${tabName}: Could not map any headers from source to destination.`);
-      continue;
-    }
+    if (Object.keys(headerMap).length === 0) continue;
 
-    // --- OPTIMIZATION: EFFICIENT CLEAR ---
+    // --- CLEAR CONTENT (Row 11 Downwards) ---
     const lastRow = destSheet.getLastRow();
-    // Clear content starting from Row 3
-    if (lastRow >= 3) {
-        destSheet.getRange(3, 1, lastRow - 2, destSheet.getLastColumn()).clearContent();
+    if (lastRow >= DATA_START_ROW) {
+        destSheet.getRange(DATA_START_ROW, 1, lastRow - DATA_START_ROW + 1, destSheet.getLastColumn()).clearContent();
     }
 
     if (filteredData.length > 0) {
       
-      // 4. Build Final Output Array (Selective Copy)
+      // Build Output
       const finalOutput = filteredData.map(sourceRow => {
           const newRow = new Array(destHeaders.length).fill('');
           for (const destIndex in headerMap) {
-              const sourceIndex = headerMap[destIndex];
-              newRow[destIndex] = sourceRow[sourceIndex];
+              newRow[destIndex] = sourceRow[headerMap[destIndex]];
           }
-          
-          // Set the 'Select' column value to TRUE (Ticked)
-          if (selectColIndex !== -1) {
-             newRow[selectColIndex] = true;
-          }
-          
+          if (selectColIndex !== -1) newRow[selectColIndex] = true;
           return newRow;
       });
 
-      // 5. Write Data (Efficient batch write)
-      // Write data starting from Row 3
-      destSheet.getRange(3, 1, finalOutput.length, finalOutput[0].length).setValues(finalOutput);
+      // Write Data (Row 11 Downwards)
+      destSheet.getRange(DATA_START_ROW, 1, finalOutput.length, finalOutput[0].length).setValues(finalOutput);
       totalRowsWritten += finalOutput.length;
       
-      // 6. Execute Native Sort (Fast I/O-based sort)
+      // --- SORTING LOGIC (Row 11 Downwards) ---
       const type = finalOutput[0][typeColIndex];
-      const dateHeader = BOOKING_TYPE_DATE_MAP[type];
-      const dateColIndexInDest = destHeaders.indexOf(dateHeader);
       
-      if (dateColIndexInDest !== -1) {
-          Logger.log(`Native Sorting tab ${tabName} by ${dateHeader} (Descending).`);
-          // Sort range starts at Row 3
-          const rangeToSort = destSheet.getRange(3, 1, finalOutput.length, destHeaders.length);
+      // 1. Determine which column name to sort by based on the Map
+      let sortColName = SORT_COLUMN_MAP[type];
+      
+      if (!sortColName) {
+        // Fallback: Use the date map if specific sort column not defined
+        sortColName = BOOKING_TYPE_DATE_MAP[type];
+      }
+
+      // 2. Find that column index in the Destination Sheet (Fuzzy Match)
+      const cleanSortName = String(sortColName).trim().toUpperCase();
+      const sortColIndex = destHeaders.findIndex(h => String(h).trim().toUpperCase() === cleanSortName);
+      
+      if (sortColIndex !== -1) {
+          Logger.log(`Sorting ${tabName} by "${sortColName}" (Descending) starting at Row ${DATA_START_ROW}.`);
+          const rangeToSort = destSheet.getRange(DATA_START_ROW, 1, finalOutput.length, destHeaders.length);
           
-          // *** FINAL CHANGE: Set 'ascending' to FALSE for DESCENDING sort (Newest First) ***
-          rangeToSort.sort({ column: dateColIndexInDest + 1, ascending: false });
+          // Sort Descending
+          rangeToSort.sort({ column: sortColIndex + 1, ascending: false });
       } else {
-           Logger.log(`Warning: Could not find sort column ${dateHeader} in ${tabName}. Skipping sort.`);
+           Logger.log(`Warning: Could not find sort column "${sortColName}" in ${tabName}. Data is unsorted.`);
       }
     }
   }
 
-  // Final Alert
   SpreadsheetApp.getUi().alert(`Report complete! Total rows written: ${totalRowsWritten}.`);
-  ss.toast('Report successfully updated.', 'Report Generator', 5);
 }
