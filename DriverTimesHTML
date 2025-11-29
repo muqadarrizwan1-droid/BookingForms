@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f4f4f9; }
+      .container { max-width: 400px; margin: auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+      input { font-size: 20px; padding: 10px; width: 80%; margin: 10px 0; text-align: center; letter-spacing: 5px; }
+      button { font-size: 18px; padding: 15px 30px; border: none; border-radius: 5px; cursor: pointer; width: 100%; margin-top: 20px; color: white;}
+      .btn-blue { background-color: #007bff; }
+      .btn-green { background-color: #28a745; }
+      .btn-red { background-color: #dc3545; }
+      .hidden { display: none; }
+      #status-msg { margin-top: 20px; font-weight: bold; }
+      h2 { color: #333; }
+    </style>
+  </head>
+  <body>
+    <div id="container" class="container">
+      <h2>Driver Timeclock</h2>
+      <p>Vehicle: <strong><?= vehicle ?></strong></p>
+      
+      <div id="login-section">
+        <p>Enter your PIN:</p>
+        <input type="password" id="pin-input" placeholder="******" maxlength="4" pattern="\d*">
+        <br>
+        <button class="btn-blue" onclick="checkUser()">Login</button>
+      </div>
+
+      <div id="action-section" class="hidden">
+        <h3 id="welcome-msg"></h3>
+        <p>Current Status: <span id="current-status">Checking...</span></p>
+        <button id="action-btn" class="btn-green" onclick="submitPunch()">LOADING...</button>
+      </div>
+
+      <p id="message"></p>
+    </div>
+
+    <script>
+      var userPin = "";
+      var currentVehicle = "<?= vehicle ?>"; // Passed from server
+      var nextActionGlob = "";
+
+      function checkUser() {
+        var pin = document.getElementById("pin-input").value;
+        if (!pin) return;
+        
+        document.getElementById("message").innerText = "Verifying...";
+        
+        // Call the server function 'checkUserStatus'
+        google.script.run.withSuccessHandler(function(response) {
+          if (response.error) {
+            document.getElementById("message").innerText = "❌ " + response.error;
+          } else {
+            // Success: Show the action buttons
+            userPin = pin;
+            document.getElementById("login-section").classList.add("hidden");
+            document.getElementById("action-section").classList.remove("hidden");
+            document.getElementById("welcome-msg").innerText = "Hello, " + response.name;
+            document.getElementById("current-status").innerText = response.currentStatus;
+            document.getElementById("message").innerText = "";
+            
+            // Setup the big button
+            nextActionGlob = response.nextAction;
+            var btn = document.getElementById("action-btn");
+            btn.innerText = nextActionGlob.toUpperCase();
+            
+            if (nextActionGlob === "Clock Out") {
+              btn.className = "btn-red";
+            } else {
+              btn.className = "btn-green";
+            }
+          }
+        }).checkUserStatus(pin);
+      }
+
+function submitPunch() {
+        var btn = document.getElementById("action-btn");
+        btn.innerText = "Processing...";
+        btn.disabled = true;
+
+        // Get Location
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(function(position) {
+            var lat = position.coords.latitude;
+            var long = position.coords.longitude;
+            sendData(lat, long);
+          }, function(error) {
+            // If GPS fails/denied, send "No GPS" but continue
+            sendData("No GPS Access", "No GPS Access");
+          });
+        } else {
+          sendData("No GPS Support", "No GPS Support");
+        }
+      }
+
+     
+function sendData(lat, long) {
+        google.script.run.withSuccessHandler(function(response) {
+          
+          if (response.success) {
+            // Check if GPS was recorded to ensure the map link is valid
+            var isGPSValid = response.mapUrl && response.mapUrl.indexOf("No GPS") === -1;
+            
+            // Set up the map link or the 'No GPS' message
+            var mapLink = isGPSValid
+              ? `<a href="${response.mapUrl}" target="_blank" style="color:white; text-decoration: underline;">View Map Location</a>` 
+              : `<span style="color:white;">No GPS location recorded.</span>`;
+
+            // Replace the container content with the success message
+            document.getElementById("container").innerHTML = `
+              <div style="text-align: left;">
+                  <h2>✅ ${response.action} Successful!</h2>
+                  <hr style="border: 1px solid #ccc;"/>
+                  <p><strong>Employee:</strong> ${response.name}</p>
+                  <p><strong>Action:</strong> ${response.action}</p>
+                  <p><strong>Vehicle/Context:</strong> ${response.vehicle}</p>
+                  <p><strong>Time:</strong> ${new Date().toLocaleTimeString()}</p>
+                  
+                  <p style="margin-top: 15px;"><strong>Logged Address:</strong><br/>
+                  ${response.address}</p>
+                  
+                  <p style="text-align: center; margin-top: 25px;">
+                      ${mapLink}
+                  </p>
+                  
+                  <button class="btn-blue" 
+                          onclick="window.top.location.href = 'https://eu.jotform.com/app/230443380537352';" 
+                          style="margin-top: 20px;">
+                      Done
+                  </button>
+              </div>
+            `;
+          } else if (response.error) {
+            document.getElementById("message").innerText = "❌ " + response.error;
+          }
+        }).recordPunch(userPin, currentVehicle, lat, long);
+      }
+
+
+
+
+    </script>
+  </body>
+</html>
