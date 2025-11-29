@@ -1,0 +1,124 @@
+// 1. SETUP: Change these if you renamed your tabs!
+const SHEET_ID = SpreadsheetApp.getActiveSpreadsheet().getId();
+const DATA_TAB_NAME = "Data";
+const USERS_TAB_NAME = "Users";
+
+// 2. This function runs when the web link is opened
+function doGet(e) {
+  var vehicle = e.parameter.v || "Personal/Remote"; // Reads '?v=' from the QR code
+  var template = HtmlService.createTemplateFromFile('Index');
+  template.vehicle = vehicle;
+  return template.evaluate()
+      .setTitle('Driver Timeclock')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+// 3. This function checks the PIN and finds the user's last status
+function checkUserStatus(pin) {
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var userSheet = ss.getSheetByName(USERS_TAB_NAME);
+  var dataSheet = ss.getSheetByName(DATA_TAB_NAME);
+  
+  // A. Find the User by PIN
+  var users = userSheet.getDataRange().getValues();
+  var userName = null;
+  
+  // Skip header row (i=1)
+  for (var i = 1; i < users.length; i++) {
+    // Check if PIN matches (convert to string just in case)
+    if (String(users[i][1]) === String(pin)) {
+      userName = users[i][0];
+      break;
+    }
+  }
+  
+  if (!userName) {
+    return { error: "PIN not found." };
+  }
+  
+  // B. Find their last action in the Data tab
+  var history = dataSheet.getDataRange().getValues();
+  var lastAction = "None"; // Default if they are new
+  
+  // Loop backwards to find the most recent entry
+  for (var j = history.length - 1; j > 0; j--) {
+    if (history[j][1] === userName) {
+      lastAction = history[j][2]; // Column C is Action
+      break;
+    }
+  }
+  
+  // C. Determine what the NEXT button should be
+  var nextAction = (lastAction === "Clock In") ? "Clock Out" : "Clock In";
+  
+  return { 
+    name: userName, 
+    currentStatus: lastAction, 
+    nextAction: nextAction 
+  };
+}
+
+// Function 4. This function actually writes the Clock In/Out to the sheet
+function recordPunch(pin, vehicle, lat, long) {
+  var status = checkUserStatus(pin); 
+  
+  // If checkUserStatus failed, return the error message immediately
+  if (status.error) return status;
+  
+  var ss = SpreadsheetApp.openById(SHEET_ID);
+  var dataSheet = ss.getSheetByName(DATA_TAB_NAME);
+  
+  var timestamp = new Date();
+  var locationLatLong = lat + ", " + long;
+  var nextAction = status.nextAction;
+
+  // --- GEOCoding: Converting Lat/Long to Address ---
+  var address = "No Address Found";
+  
+  if (lat && lat !== "No GPS Access" && lat !== "No GPS Support") {
+    try {
+      var geocoder = Maps.newGeocoder();
+      var response = geocoder.reverseGeocode(lat, long);
+      
+      if (response.results && response.results.length > 0) {
+        
+        // 1. Try to find a specific street address or route first (to avoid Plus Codes)
+        for (var i = 0; i < response.results.length; i++) {
+          if (response.results[i].types.indexOf('street_address') > -1 || 
+              response.results[i].types.indexOf('route') > -1) {
+            address = response.results[i].formatted_address;
+            break; // Stop searching once a good address is found
+          }
+        }
+        
+        // 2. If no specific address was found, default to the best available address (results[0])
+        if (address === "No Address Found") {
+          address = response.results[0].formatted_address;
+        }
+      }
+    } catch (e) {
+      Logger.log("Geocoding failed: " + e);
+    }
+  }
+
+  // Append the row to the DATA tab (A-F columns)
+  // Indices: 0-Timestamp, 1-Name, 2-Action, 3-Lat/Long, 4-Address, 5-Vehicle
+  dataSheet.appendRow([
+    timestamp, 
+    status.name, 
+    nextAction, 
+    locationLatLong, 
+    address, 
+    vehicle
+  ]);
+
+  // Return data needed for the success screen
+  return { 
+    success: true, 
+    action: nextAction, 
+    name: status.name, 
+    mapUrl: `https://www.google.com/maps/search/?api=1&query=${lat},${long}`,
+    address: address,
+    vehicle: vehicle
+  };
+}
