@@ -1,0 +1,308 @@
+
+
+// --- NEW CONSTANTS (Defined earlier, but included here for reference) ---
+const DRIVER_REPORT_TEMPLATE_NAME = 'ClientTimeSheet';
+const DRIVER_REPORT_TAB_PREFIX = 'Timesheet-'; 
+
+const DRIVER_CELL_MAP = {
+  DRIVER_NAME: 'B6', 
+  CLIENT_NAME: 'D6', 
+  WEEK_START: 'M6',  // Target for full date format
+  REPORT_DATE: 'B8', 
+};
+
+// --- SINGLE SHIFT MAPPING FOR TESTING (FINAL MAPPING) ---
+const TEST_SHIFT_MAP = [
+  // B-Column Block (Shift Info)
+  { dest: 'B14', source: 'Client Start Time', format: 'date' },
+  { dest: 'B15', source: ['Day Type', 'Call', 'Wrap'], format: 'daytype_callwrap' }, 
+  { dest: 'B16', source: 'Unit Base Address' },
+  { dest: 'B17', source: null }, // Clear B17
+  
+  // C-Column Block (Start/Finish/Hours)
+  { dest: 'C14', source: 'Client Start Time', format: 'time_prefix' }, 
+  { dest: 'C15', source: 'Client Finish Time', format: 'time_prefix' }, 
+  { dest: 'C16', source: 'Client Hours', format: 'hours_prefix' }, 
+  { dest: 'C17', source: 'Film Unit Day Options' }, 
+
+  // D-Column Block (Vehicle/Mileage & References)
+  { dest: 'D14', source: ['Vehicle Registration', 'Calculated Mileage'], format: 'vehicle_mileage' },
+  { dest: 'D15', source: ['Hire No.', 'DBF Reference'], format: 'ref_dbf_space' }, 
+  { dest: 'D16', source: 'Transport Captain' }, 
+  
+  // F-Column Block (Basic Rate Conditional)
+  { dest: 'F14', source: 'Basic Rate', format: 'conditional_rate' }, 
+  { dest: 'F15', source: 'Basic Rate', format: 'conditional_rate' }, 
+  { dest: 'F16', source: 'Basic Rate', format: 'conditional_rate' }, 
+  { dest: 'F17', source: 'Basic Rate', format: 'conditional_rate' }, 
+
+  // I-Column Block (Hours & Rate)
+  { dest: 'I14', source: 'Standard O/T', format: 'hours_only' },
+  { dest: 'I15', source: 'BTA Hours', format: 'hours_only' },
+  { dest: 'I16', source: 'Early Call Hours', format: 'hours_only' },
+  { dest: 'I17', source: 'Standard O/T Rate', format: 'currency' }, 
+  
+  // L-Column Block (Hours/O/T/Travel)
+  { dest: 'L14', source: 'Standard Night Hours', format: 'hours_only' },
+  { dest: 'L15', source: 'Enhanced Hours', format: 'hours_only' },
+  { dest: 'L16', source: 'Pre-Agreed Travel / Other O/T', format: 'currency' },
+
+  // O-Column Block (Per Diems)
+  { dest: 'O14', source: 'Breakfast', format: 'currency_if_value' },
+  { dest: 'O15', source: 'Lunch', format: 'currency_if_value' },
+  { dest: 'O16', source: 'Overnight', format: 'currency_if_value' },
+  { dest: 'O17', source: 'Other Per Diems', format: 'currency_if_value' },
+];
+
+// ----------------------------------------------------------------------------------
+
+function generateDriverFilmDayReports_FromClientTimeSheet() {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ui = SpreadsheetApp.getUi();
+    const sourceSheet = ss.getSheetByName('FilmDays');
+    const templateSheet = ss.getSheetByName(DRIVER_REPORT_TEMPLATE_NAME);
+    const DATA_START_ROW_SOURCE = 11;
+    const HEADER_ROW_SOURCE = 2;
+
+    if (!templateSheet) {
+        ui.alert('Setup Error', `Template sheet named "${DRIVER_REPORT_TEMPLATE_NAME}" not found. Please ensure the tab exists.`, ui.ButtonSet.OK);
+        return;
+    }
+    if (!sourceSheet || getRealLastRow(sourceSheet) < DATA_START_ROW_SOURCE) {
+        ui.alert('Report Error', 'The "FilmDays" tab is empty or not found. Please run "Generate Client Sheets" first to filter the data.', ui.ButtonSet.OK);
+        return;
+    }
+    
+    // --- 1. Get Data and Headers ---
+    const sourceHeaders = sourceSheet.getRange(HEADER_ROW_SOURCE, 1, 1, sourceSheet.getLastColumn()).getDisplayValues()[0];
+    const sourceData = sourceSheet.getRange(DATA_START_ROW_SOURCE, 1, getRealLastRow(sourceSheet) - DATA_START_ROW_SOURCE + 1, sourceHeaders.length).getDisplayValues(); 
+    
+    // Utility to find index, checking for 'Header?' or 'Header'
+    const findRobustIndex = (baseHeader) => {
+        let index = sourceHeaders.findIndex(h => h.trim() === baseHeader + '?');
+        if (index === -1) {
+            index = sourceHeaders.findIndex(h => h.trim() === baseHeader);
+        }
+        return index;
+    };
+
+    // --- A. Define all necessary indices ---
+    const driverColIndex = findRobustIndex('Full Name');
+    const clientColIndex = findRobustIndex('Client');
+    const clientStartTimeIndex = findRobustIndex('Client Start Time');
+    const clientFinishTimeIndex = findRobustIndex('Client Finish Time');
+    const dayTypeIndex = findRobustIndex('Day Type');
+    const callIndex = findRobustIndex('Call'); 
+    const wrapIndex = findRobustIndex('Wrap');
+    const unitBaseAddressIndex = findRobustIndex('Unit Base Address');
+    const clientHoursIndex = findRobustIndex('Client Hours');
+    const filmUnitDayOptionsIndex = findRobustIndex('Film Unit Day Options');
+    const vehicleRegIndex = findRobustIndex('Vehicle Registration');
+    const calculatedMileageIndex = findRobustIndex('Calculated Mileage');
+    const hireNoIndex = findRobustIndex('Hire No.');
+    const dbfRefIndex = findRobustIndex('DBF Reference');
+    const basicRateIndex = findRobustIndex('Basic Rate');
+    
+    const bankHolidayIndex = findRobustIndex('Bank Holiday'); 
+    const seventhDayIndex = findRobustIndex('7th Day'); 
+    const sixthDayIndex = findRobustIndex('6th Day');
+    
+    const transportCaptainIndex = findRobustIndex('Transport Captain');
+    const standardOTRateIndex = findRobustIndex('Standard O/T Rate'); 
+
+    
+    if ([driverColIndex, clientColIndex, clientStartTimeIndex].includes(-1)) {
+        ui.alert('Configuration Error', 'Critical columns are missing from the FilmDays tab header (Row 2).');
+        return;
+    }
+    
+    const firstShiftRow = sourceData.find(row => String(row[driverColIndex]).trim() && String(row[clientStartTimeIndex]).trim());
+    
+    if (!firstShiftRow) {
+        ui.alert('Report Info', 'No valid shift data found in "FilmDays" to generate the report.');
+        return;
+    }
+    
+    const driverName = String(firstShiftRow[driverColIndex]).trim();
+    const clientName = String(firstShiftRow[clientColIndex]).trim();
+    const firstShiftDateStr = firstShiftRow[clientStartTimeIndex]; 
+    
+    // --- 2. Create/Clean Report Sheet (Legacy duplication) ---
+    const sanitizedDriverName = driverName.replace(/[^a-z0-9]/gi, '_').substring(0, 20);
+    const reportTabName = `${DRIVER_REPORT_TAB_PREFIX}${sanitizedDriverName}_TEST`;
+
+    const existingSheet = ss.getSheetByName(reportTabName);
+    if (existingSheet) ss.deleteSheet(existingSheet); 
+    
+    ss.setActiveSheet(templateSheet);
+    const newSheet = ss.duplicateActiveSheet();
+    
+    newSheet.setName(reportTabName);
+    newSheet.setTabColor('#28a745'); 
+
+    // --- 3. Write Header Information ---
+    
+    newSheet.getRange(DRIVER_CELL_MAP.DRIVER_NAME).setValue(driverName); 
+    newSheet.getRange(DRIVER_CELL_MAP.CLIENT_NAME).setValue(clientName); 
+    
+    // M6 FIX: Convert date string to Date object and apply detailed format
+    const firstShiftDateObject = new Date(firstShiftDateStr); 
+    if (!isNaN(firstShiftDateObject)) {
+        // Target format: "Sunday, 2 November 2025"
+        newSheet.getRange(DRIVER_CELL_MAP.WEEK_START).setValue(
+            Utilities.formatDate(firstShiftDateObject, ss.getSpreadsheetTimeZone(), 'EEEE, d MMMM yyyy')
+        ); 
+    } else {
+        newSheet.getRange(DRIVER_CELL_MAP.WEEK_START).setValue(String(firstShiftDateStr).split(' ')[0]);
+    }
+    
+    const reportDateRange = newSheet.getRange(DRIVER_CELL_MAP.REPORT_DATE);
+    const dateValue = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'dd/MM/yyyy HH:mm');
+    reportDateRange.setValue(dateValue);
+    reportDateRange.setHorizontalAlignment('left'); 
+
+    // --- 4. Utility Functions for Mapping ---
+
+    // Utility to get only the time string (HH:MM) from a full datetime string
+    const getOnlyTime = (index) => {
+        const value = firstShiftRow[index];
+        if (value && value !== "") {
+            const parts = String(value).trim().split(' ');
+            if (parts.length > 1) {
+                 const timePart = parts[1].split(':');
+                 return `${timePart[0]}:${timePart[1]}`;
+            } else if (parts[0].includes(':')) {
+                 const timePart = parts[0].split(':');
+                 return `${timePart[0]}:${timePart[1]}`;
+            }
+        }
+        return '____';
+    };
+    
+    // Utility to get a simple value string
+    const getSimpleValue = (index) => String(firstShiftRow[index] || '').trim();
+
+    // Utility to check if a checkbox column is flagged as true (FIXED ROBUSTLY)
+    const isFlagged = (index) => {
+        const val = getSimpleValue(index);
+        // Checks for 'TRUE' (string from display value) or boolean true
+        return (val === 'TRUE' || val === 'true');
+    };
+
+    // Utility to get the index, handling the case where 'source' is a string header
+    const findSourceIndex = (header) => sourceHeaders.findIndex(h => h.trim() === header);
+
+    // --- 5. Centralized Conditional Rate Logic (FIX FOR F14-F17) ---
+    const basicRate = getSimpleValue(basicRateIndex);
+    
+    const is7th = isFlagged(seventhDayIndex);
+    const is6th = isFlagged(sixthDayIndex);
+    const isBankHoliday = isFlagged(bankHolidayIndex);
+    
+    let rateDestinationCell = null;
+    
+    // Priority check (Highest priority first)
+    if (isBankHoliday) {
+        rateDestinationCell = 'F17'; // Highest Priority: Bank Holiday
+    } else if (is7th) {
+        rateDestinationCell = 'F16'; // Next Priority: 7th Day
+    } else if (is6th) {
+        rateDestinationCell = 'F15'; // Next Priority: 6th Day
+    } else {
+        rateDestinationCell = 'F14'; // Default: Basic Rate
+    }
+    // --- End Centralized Logic ---
+
+
+    // --- 6. Write Single Shift Data to Mapped Cells (FULLY IMPLEMENTED) ---
+    
+    TEST_SHIFT_MAP.forEach(map => {
+        let value = '';
+        let targetCell = newSheet.getRange(map.dest);
+        
+        // --- Conditional Rate Check ---
+        if (map.format === 'conditional_rate') {
+             if (map.dest === rateDestinationCell) {
+                value = basicRate;
+                if (value) targetCell.setNumberFormat('£#,##0.00');
+            } else {
+                value = ''; // Ensure other cells in F14-F17 are cleared
+            }
+        } 
+        // --- Standard Mapping ---
+        else if (Array.isArray(map.source)) {
+            let source1 = findSourceIndex(map.source[0]);
+            let source2 = findSourceIndex(map.source[1]);
+
+            if (map.format === 'daytype_callwrap') {
+                const dayType = getSimpleValue(dayTypeIndex);
+                const callTime = getOnlyTime(callIndex);
+                const wrapTime = getOnlyTime(wrapIndex);
+                value = `${dayType} / ${callTime}-${wrapTime}`;
+            } else if (map.format === 'vehicle_mileage') {
+                const vehicle = getSimpleValue(vehicleRegIndex);
+                const mileage = getSimpleValue(calculatedMileageIndex);
+                value = `${vehicle} / ${mileage} miles`;
+            } else if (map.format === 'ref_dbf_space') { 
+                const hireNo = getSimpleValue(hireNoIndex);
+                const dbfRef = getSimpleValue(dbfRefIndex);
+                value = `${hireNo} / ${dbfRef}`; 
+            }
+        } else if (map.source === null) {
+            targetCell.clearContent();
+            return;
+        } else {
+            let sourceIndex = findSourceIndex(map.source);
+            if (sourceIndex === -1) return;
+            
+            const sourceVal = getSimpleValue(sourceIndex);
+
+            if (map.format === 'date') {
+                value = String(sourceVal).split(' ')[0]; 
+            } else if (map.format === 'time_prefix') {
+                const prefix = map.dest === 'C14' ? 'Start: ' : 'Finish: ';
+                value = prefix + getOnlyTime(sourceIndex); 
+            } else if (map.format === 'hours_prefix') {
+                value = 'Total Hours: ' + sourceVal; 
+                targetCell.setNumberFormat('0.00');
+            } else if (map.format === 'hours_only') {
+                value = sourceVal;
+                targetCell.setNumberFormat('0.00');
+            } else if (map.format === 'currency') { 
+                value = sourceVal;
+                targetCell.setNumberFormat('£#,##0.00');
+            } else if (map.format === 'currency_if_value') {
+                const numValue = parseFloat(String(sourceVal).replace(/[£$,]/g, '').trim());
+                if (isNaN(numValue) || numValue === 0) {
+                    value = '';
+                } else {
+                    value = sourceVal;
+                    targetCell.setNumberFormat('£#,##0.00');
+                }
+            } else {
+                value = sourceVal;
+            }
+        }
+
+        if (map.dest !== 'B17') { 
+            targetCell.setValue(value);
+        }
+    });
+
+    // --- 7. Apply Merging and Wrapping ---
+    
+    // Merge B16 and B17 (Unit Base Address area)
+    const baseAddressRange = newSheet.getRange('B16:B17');
+    baseAddressRange.breakApart(); 
+    baseAddressRange.merge();
+    
+    // Apply formatting to the merged Unit Base Address cell
+    baseAddressRange.setWrap(true).setVerticalAlignment('middle');
+    
+    // --- 8. Final Alert ---
+    ui.alert('✅ Single-Row Test Complete!', `The report tab '${reportTabName}' has been created and populated with the first shift's data. All fields, including the M6 date format, should now be correct.`, ui.ButtonSet.OK);
+    ss.setActiveSheet(newSheet);
+}
+
+
+
