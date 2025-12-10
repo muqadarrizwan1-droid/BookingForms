@@ -1,0 +1,262 @@
+/**
+ * Generates the complete, master report for all Single Journey (SJ) data.
+ * Includes robust bounds checking to prevent "out of bounds" errors during row manipulation.
+ */
+function generateCategorizedSJTReport() {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ui = SpreadsheetApp.getUi();
+    const TEMPLATE_NAME = 'ClientSJs';
+    const REPORT_TAB_NAME = 'Timesheet-ClientSJs'; // Destination tab name
+    const SOURCE_TAB = 'SingleJourneys';
+    const SOURCE_DATA_START_ROW = 11; 
+    const HEADER_ROW = 2;
+    const CATEGORY_HEADER = 'Single Journey Options';
+    
+    // --- CONSTANTS ---
+    const CATEGORY_START_ROW = 9;
+    const CATEGORY_COLUMN_LETTER = 'H';
+    const CATEGORY_MAX_ROW = 27; 
+    
+    // --- TARGETED HIDING CONSTANTS (15 to 27) ---
+    const HIDING_START_ROW = 15; 
+    const HIDING_END_ROW = CATEGORY_MAX_ROW;
+
+    // --- MAIN DATA WRITING CONSTANTS ---
+    const DATA_ROW_START_DEST = 34; 
+    const ROW_HEIGHT_BLANK = 10;
+    const ROWS_PER_SHIFT_BLOCK = 2; 
+
+    const templateSheet = ss.getSheetByName(TEMPLATE_NAME);
+    const sourceSheet = ss.getSheetByName(SOURCE_TAB);
+
+    if (!templateSheet) {
+        ui.alert('Setup Error', `Template sheet named "${TEMPLATE_NAME}" not found. Please create it.`, ui.ButtonSet.OK);
+        return;
+    }
+    if (!sourceSheet || getRealLastRow(sourceSheet) < SOURCE_DATA_START_ROW) {
+        ui.alert('Report Error', `Source sheet "${SOURCE_TAB}" is empty or not found. Please run a filter first.`, ui.ButtonSet.OK);
+        return;
+    }
+
+    // --- 1. Duplicate the Template Sheet ---
+    const existingReportSheet = ss.getSheetByName(REPORT_TAB_NAME);
+    if (existingReportSheet) ss.deleteSheet(existingReportSheet); 
+
+    ss.setActiveSheet(templateSheet);
+    const newReportSheet = ss.duplicateActiveSheet();
+    newReportSheet.setName(REPORT_TAB_NAME);
+    newReportSheet.setTabColor('#007bff'); 
+    
+    const categoryColIndex = newReportSheet.getRange(CATEGORY_COLUMN_LETTER + CATEGORY_START_ROW).getColumn();
+    
+    // --- 2. Analyze Unique Categories & Get Data ---
+    const sourceHeaders = sourceSheet.getRange(HEADER_ROW, 1, 1, sourceSheet.getLastColumn()).getDisplayValues()[0];
+    const sourceDataCount = getRealLastRow(sourceSheet) - SOURCE_DATA_START_ROW + 1; 
+    
+    const categoryColSourceIndex = sourceHeaders.findIndex(h => h.trim() === CATEGORY_HEADER);
+    const clientColSourceIndex = sourceHeaders.findIndex(h => h.trim() === 'Client');
+    
+    // Read raw values to handle Date objects properly
+    const sourceData = sourceSheet.getRange(SOURCE_DATA_START_ROW, 1, sourceDataCount, sourceSheet.getLastColumn()).getValues();
+
+    const uniqueCategories = new Set();
+    let clientName = '';
+
+    sourceData.forEach(row => {
+        const category = String(row[categoryColSourceIndex] || '').trim();
+        if (category) {
+            uniqueCategories.add(category);
+        }
+        if (!clientName && row[clientColSourceIndex]) {
+            clientName = String(row[clientColSourceIndex]).trim();
+        }
+    });
+
+    const categoryArray = Array.from(uniqueCategories).sort(); 
+
+    // --- 3. Check for Space Limit (H9 to H27) ---
+    const startRow = CATEGORY_START_ROW; 
+    const spaceAvailable = CATEGORY_MAX_ROW - startRow + 1;
+    
+    if (categoryArray.length > spaceAvailable) {
+        ui.alert(
+            'SPACE ERROR', 
+            `The report contains ${categoryArray.length} unique categories, but there is only space for ${spaceAvailable} (H${startRow} to H${CATEGORY_MAX_ROW}).`, 
+            ui.ButtonSet.OK
+        );
+        return; 
+    }
+
+    // --- 4. Write Categories & Hide Empty Rows (Bounds Checked) ---
+    
+    const categoryWriteRange = newReportSheet.getRange(CATEGORY_START_ROW, categoryColIndex, spaceAvailable, 1);
+    categoryWriteRange.clearContent();
+    
+    const categoriesToWrite = categoryArray.map(cat => [cat]);
+    
+    if (categoriesToWrite.length > 0) {
+        const destinationRange = newReportSheet.getRange(CATEGORY_START_ROW, categoryColIndex, categoriesToWrite.length, 1);
+        destinationRange.setValues(categoriesToWrite);
+    }
+    
+    // Targeted Row Hiding (Row 27 down to Row 15)
+    let rowsHidden = 0;
+    const lastColumn = newReportSheet.getLastColumn();
+    
+    // Determine the safe maximum row to check
+    const sheetMaxRows = newReportSheet.getMaxRows();
+    const safeHidingEndRow = Math.min(HIDING_END_ROW, sheetMaxRows);
+
+    // First, ensure all rows in the target range are UNHIDDEN
+    if (safeHidingEndRow >= HIDING_START_ROW) {
+        newReportSheet.showRows(HIDING_START_ROW, safeHidingEndRow - HIDING_START_ROW + 1);
+    }
+
+    // Loop backward from the safe maximum row down to 15 to safely hide empty rows
+    for (let r = safeHidingEndRow; r >= HIDING_START_ROW; r--) {
+        // We now guarantee 'r' is <= sheetMaxRows
+        const rowRange = newReportSheet.getRange(r, 1, 1, lastColumn); 
+        const rowValues = rowRange.getDisplayValues()[0];
+        
+        if (rowValues.join('').trim() === '') {
+            newReportSheet.hideRows(r);
+            rowsHidden++;
+        }
+    }
+    
+    // --- 5. Write Header & Summary Data ---
+    
+    newReportSheet.getRange('C1').setValue(clientName);
+    newReportSheet.getRange('B13').setValue(clientName);
+    
+    newReportSheet.getRange('B14').setValue(sourceDataCount);
+    
+    const currentDateTime = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), 'EEEE, d MMMM yyyy \'at\' HH:mm:ss');
+    newReportSheet.getRange('B8').setValue(currentDateTime);
+    
+    // --- 6. Dynamically Insert Rows for Shift Data ---
+    
+    const numShifts = sourceData.length;
+    let requiredNewRows = 0;
+
+    if (numShifts > 0) {
+        requiredNewRows = (numShifts * ROWS_PER_SHIFT_BLOCK) - 1;
+    }
+    
+    if (requiredNewRows > 0) {
+        newReportSheet.insertRows(DATA_ROW_START_DEST, requiredNewRows);
+    }
+    
+    // --- 7. Write Data Row by Row with Blank Row Insertion ---
+    
+    const MAPPING_CONFIG = [
+        { destCol: 'A', sourceHeader: 'Full Name', format: 'text' },
+        { destCol: 'B', sourceHeader: ['DBF Reference', 'Hire No.'], format: 'ref_hireno_newline' },
+        { destCol: 'C', sourceHeader: 'Vehicle Registration', format: 'text' },
+        { destCol: 'D', sourceHeader: 'Single Journey Options', format: 'text' },
+        { destCol: 'E', sourceHeader: 'Customer Name', format: 'text' },
+        { destCol: 'F', sourceHeader: 'Pickup Address', format: 'text' },
+        { destCol: 'G', sourceHeader: 'Drop-off Address', format: 'text' },
+        { destCol: 'H', sourceHeader: 'Booking Time', format: 'datetime_split' },
+        { destCol: 'I', sourceHeader: 'POB Time', format: 'time_only' },
+        { destCol: 'J', sourceHeader: 'Single Journey Wait', format: 'decimal_2' },
+        { destCol: 'K', sourceHeader: 'Calculated Mileage', format: 'number_0' },
+        { destCol: 'L', sourceHeader: 'Client SJ Price', format: 'currency' },
+        { destCol: 'M', sourceHeader: 'Client SJ Wait Total', format: 'currency' },
+        
+        { destCol: 'N', sourceHeader: null, format: 'text' }, 
+        { destCol: 'O', sourceHeader: null, format: 'text' }, 
+        
+        { destCol: 'P', sourceHeader: 'Total Per Diems Payment', format: 'currency' }, 
+    ];
+    
+    // Create header index map
+    MAPPING_CONFIG.forEach(map => {
+        if (Array.isArray(map.sourceHeader)) {
+            map.indices = map.sourceHeader.map(h => sourceHeaders.findIndex(sh => sh.trim() === h.trim()));
+        } else if (map.sourceHeader) { 
+            map.index = sourceHeaders.findIndex(sh => sh.trim() === map.sourceHeader.trim());
+        }
+    });
+
+    // Set wrapping for columns B and H
+    newReportSheet.getRange('B' + DATA_ROW_START_DEST + ':B').setWrap(true);
+    newReportSheet.getRange('H' + DATA_ROW_START_DEST + ':H').setWrap(true);
+    
+    let currentRow = DATA_ROW_START_DEST;
+    let shiftsWritten = 0;
+    
+    sourceData.forEach(sourceRow => {
+        const rowData = [];
+        
+        MAPPING_CONFIG.forEach(map => {
+            let value = '';
+            const timeZone = ss.getSpreadsheetTimeZone();
+            
+            const formatValue = (val, format) => {
+                if (!val) return '';
+                if (val instanceof Date) {
+                    switch (format) {
+                        case 'datetime_split': 
+                            const datePart = Utilities.formatDate(val, timeZone, 'dd/MM/yyyy');
+                            const timePart = Utilities.formatDate(val, timeZone, 'HH:mm');
+                            return `${datePart}\n${timePart}`;
+                        case 'time_only':
+                            return Utilities.formatDate(val, timeZone, 'HH:mm');
+                        default:
+                            return val;
+                    }
+                }
+                return val;
+            };
+
+            if (map.indices) {
+                const ref = sourceRow[map.indices[0]];
+                const hire = sourceRow[map.indices[1]];
+                
+                if (map.format === 'ref_hireno_newline') {
+                    value = `${ref || ''}\n${hire || ''}`;
+                } else {
+                    value = `${ref || ''} / ${hire || ''}`;
+                }
+            } else if (map.sourceHeader === null) {
+                value = '';
+            } else if (map.index !== -1) {
+                value = sourceRow[map.index];
+            }
+            
+            rowData.push(formatValue(value, map.format));
+        });
+
+        // Write the single row of data
+        const dataRange = newReportSheet.getRange(currentRow, 1, 1, rowData.length);
+        dataRange.setValues([rowData]);
+        
+        // Apply Formatting 
+        MAPPING_CONFIG.forEach((map, colIndex) => {
+            const cell = newReportSheet.getRange(currentRow, colIndex + 1);
+            if (map.format === 'currency') {
+                cell.setNumberFormat('£#,##0.00');
+            } else if (map.format === 'number_0') {
+                cell.setNumberFormat('0');
+            } else if (map.format === 'decimal_2') {
+                cell.setNumberFormat('0.00');
+            }
+        });
+
+        // --- Set Height for the Blank Row (Row below the data) ---
+        if (shiftsWritten < numShifts - 1) {
+            newReportSheet.setRowHeight(currentRow + 1, ROW_HEIGHT_BLANK);
+            currentRow += 2; 
+        } else {
+            currentRow += 1; 
+        }
+        
+        shiftsWritten++;
+    });
+    
+    // --- 8. Final Output Message ---
+    ui.alert('Single Journey Report Analysis', `✅ Report generation complete. ${shiftsWritten} shifts written to "${REPORT_TAB_NAME}", starting at Row ${DATA_ROW_START_DEST}. ${rowsHidden} empty category rows were hidden.`, ui.ButtonSet.OK);
+    ss.setActiveSheet(newReportSheet);
+}
+
